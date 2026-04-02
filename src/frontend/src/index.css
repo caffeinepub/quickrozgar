@@ -1,0 +1,106 @@
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Primary Blue: #1a56db → OKLCH */
+    --primary: 46% 0.22 261;
+    --primary-foreground: 100% 0 0;
+
+    /* Orange Accent: #f97316 → OKLCH */
+    --accent: 71% 0.2 41;
+    --accent-foreground: 100% 0 0;
+
+    /* Background */
+    --background: 97% 0.01 248;
+    --foreground: 20% 0.02 261;
+
+    /* Card */
+    --card: 100% 0 0;
+    --card-foreground: 20% 0.02 261;
+
+    /* Muted */
+    --muted: 93% 0.01 248;
+    --muted-foreground: 50% 0.03 261;
+
+    /* Secondary */
+    --secondary: 93% 0.02 248;
+    --secondary-foreground: 30% 0.05 261;
+
+    /* Border, Input, Ring */
+    --border: 88% 0.02 248;
+    --input: 88% 0.02 248;
+    --ring: 46% 0.22 261;
+
+    /* Destructive */
+    --destructive: 55% 0.22 25;
+    --destructive-foreground: 100% 0 0;
+
+    /* Popover */
+    --popover: 100% 0 0;
+    --popover-foreground: 20% 0.02 261;
+
+    /* Radius */
+    --radius: 0.75rem;
+
+    /* Success */
+    --success: 60% 0.17 160;
+    --success-foreground: 100% 0 0;
+
+    /* Warning */
+    --warning: 80% 0.16 80;
+    --warning-foreground: 20% 0.05 80;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: none;
+  }
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* Mobile app shell */
+.app-shell {
+  max-width: 430px;
+  margin: 0 auto;
+  min-height: 100dvh;
+  position: relative;
+  background: oklch(var(--background));
+  box-shadow: 0 0 60px oklch(0 0 0 / 0.1);
+}
+
+/* Safe area for bottom nav */
+.content-area {
+  padding-bottom: calc(72px + env(safe-area-inset-bottom));
+}
+
+.bottom-nav {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-thumb {
+  background: oklch(var(--muted-foreground));
+  border-radius: 4px;
+}
+
+/* Card hover */
+.job-card:active {
+  transform: scale(0.98);
+  transition: transform 0.1s ease;
+}
