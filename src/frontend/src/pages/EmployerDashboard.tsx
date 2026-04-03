@@ -66,7 +66,7 @@ const JOB_CATEGORIES = [
   { emoji: "🛍️", label: "Retail Jobs" },
 ];
 
-const SAMPLE_CANDIDATES = [
+const _SAMPLE_CANDIDATES = [
   {
     name: "Rahul Sharma",
     phone: "9876543210",
@@ -492,7 +492,10 @@ function DashboardView({
           { label: "Jobs Posted", value: jobCount, color: "text-blue-600" },
           {
             label: "Applications",
-            value: SAMPLE_CANDIDATES.length,
+            value: (() => {
+              const sess = getEmployerSession();
+              return sess ? getApplicationsForEmployer(sess.phone).length : 0;
+            })(),
             color: "text-purple-600",
           },
           { label: "Active Plan", value: "Basic", color: "text-amber-600" },

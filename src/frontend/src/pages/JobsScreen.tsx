@@ -72,7 +72,7 @@ const CITIES = [
 
 const SALARY_BRACKET = "₹10,000 – ₹20,000/month";
 
-const FALLBACK_JOBS: Record<string, { title: string; company: string }[]> = {
+const _FALLBACK_JOBS: Record<string, { title: string; company: string }[]> = {
   waiter: [
     { title: "Restaurant Waiter", company: "Barbeque Nation" },
     { title: "Banquet Steward", company: "Taj Hotels" },
@@ -179,8 +179,7 @@ export default function JobsScreen({
         localId: j.id,
       }));
     }
-    // Fallback to sample data
-    return FALLBACK_JOBS[selectedCategory] ?? [];
+    return [];
   })();
 
   function handleCategoryClick(catId: string) {
@@ -390,6 +389,15 @@ export default function JobsScreen({
 
             {/* Job Cards */}
             <div className="flex-1 px-4 py-4 space-y-3 pb-8">
+              {jobListings.length === 0 && (
+                <div
+                  className="text-center text-muted-foreground text-sm py-10"
+                  data-ocid="jobs.listings.empty_state"
+                >
+                  Is category mein abhi koi approved naukri nahi hai. <br />
+                  Thodi der mein check karo! 🙏
+                </div>
+              )}
               {jobListings.map((job, i) => (
                 <motion.div
                   key={`${job.company}-${job.title}-${i}`}

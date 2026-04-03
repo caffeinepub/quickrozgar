@@ -339,56 +339,129 @@ function AdminDashboard() {
         </div>
       )}
 
+      {/* Platform Activity (Local Stats) */}
+      {(() => {
+        const localJobs = getAllJobsAdmin();
+        const localApps = getAllApplicationsAdmin();
+        const pendingJobs = localJobs.filter(
+          (j) => j.status === "Pending",
+        ).length;
+        const approvedJobs = localJobs.filter(
+          (j) => j.status === "Approved",
+        ).length;
+        const pendingApps = localApps.filter(
+          (a) => a.status === "Pending",
+        ).length;
+        const platformCards = [
+          {
+            label: "Pending Jobs",
+            value: pendingJobs,
+            color: "text-orange-600 bg-orange-50",
+          },
+          {
+            label: "Approved Jobs",
+            value: approvedJobs,
+            color: "text-green-600 bg-green-50",
+          },
+          {
+            label: "Total Applications",
+            value: localApps.length,
+            color: "text-blue-600 bg-blue-50",
+          },
+          {
+            label: "Pending Applications",
+            value: pendingApps,
+            color: "text-amber-600 bg-amber-50",
+          },
+        ];
+        return (
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">
+              Platform Activity
+            </h2>
+            <p className="text-sm text-gray-500 mt-0.5 mb-3">
+              Real-time data from local platform
+            </p>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              {platformCards.map((card) => (
+                <div
+                  key={card.label}
+                  className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm"
+                >
+                  <p
+                    className={`text-2xl font-bold ${card.color.split(" ")[0]}`}
+                  >
+                    {card.value}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-0.5">{card.label}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Recent Activity */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
         <h3 className="font-semibold text-gray-900 mb-3">Recent Activity</h3>
-        {loading ? (
-          <div className="flex items-center gap-2 text-gray-400 text-sm">
-            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading...
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {(recentActivity?.recentJobs.length ?? 0) === 0 &&
-            (recentActivity?.recentApplications.length ?? 0) === 0 ? (
+        {(() => {
+          const recentLocalJobs = getAllJobsAdmin()
+            .sort((a, b) => b.postedAt - a.postedAt)
+            .slice(0, 5);
+          const recentLocalApps = getAllApplicationsAdmin()
+            .sort((a, b) => b.appliedAt - a.appliedAt)
+            .slice(0, 5);
+          const hasLocalData =
+            recentLocalJobs.length > 0 || recentLocalApps.length > 0;
+          if (!hasLocalData) {
+            return (
               <p className="text-sm text-gray-400">
                 No recent activity to display.
               </p>
-            ) : (
-              <>
-                {recentActivity?.recentJobs.map((job) => (
-                  <div
-                    key={job.id.toString()}
-                    className="flex items-center gap-2 text-sm text-gray-700 py-1 border-b border-gray-50 last:border-0"
+            );
+          }
+          return (
+            <div className="space-y-2">
+              {recentLocalJobs.map((job) => (
+                <div
+                  key={job.id}
+                  className="flex items-center gap-2 text-sm text-gray-700 py-1 border-b border-gray-50 last:border-0"
+                >
+                  <span>📋</span>
+                  <span>
+                    New job: <span className="font-medium">{job.title}</span> at{" "}
+                    <span className="text-gray-500">{job.company}</span>
+                  </span>
+                  <span
+                    className={`ml-auto text-xs px-2 py-0.5 rounded-full font-medium ${job.status === "Approved" ? "bg-green-100 text-green-700" : job.status === "Rejected" ? "bg-red-100 text-red-700" : "bg-orange-100 text-orange-700"}`}
                   >
-                    <span>📋</span>
-                    <span>
-                      New job: <span className="font-medium">{job.title}</span>{" "}
-                      at <span className="text-gray-500">{job.company}</span>
-                    </span>
-                  </div>
-                ))}
-                {recentActivity?.recentApplications.map((app) => (
-                  <div
-                    key={app.id.toString()}
-                    className="flex items-center gap-2 text-sm text-gray-700 py-1 border-b border-gray-50 last:border-0"
+                    {job.status}
+                  </span>
+                </div>
+              ))}
+              {recentLocalApps.map((app) => (
+                <div
+                  key={app.id}
+                  className="flex items-center gap-2 text-sm text-gray-700 py-1 border-b border-gray-50 last:border-0"
+                >
+                  <span>👤</span>
+                  <span>
+                    Application:{" "}
+                    <span className="font-medium">
+                      {app.employeeName || app.employeePhone}
+                    </span>{" "}
+                    → <span className="text-gray-500">{app.jobTitle}</span>
+                  </span>
+                  <span
+                    className={`ml-auto text-xs px-2 py-0.5 rounded-full font-medium ${app.status === "Approved" ? "bg-green-100 text-green-700" : app.status === "Rejected" ? "bg-red-100 text-red-700" : "bg-orange-100 text-orange-700"}`}
                   >
-                    <span>👤</span>
-                    <span>
-                      New application:{" "}
-                      <span className="font-medium">
-                        {app.worker?.name || "Unknown"}
-                      </span>{" "}
-                      →{" "}
-                      <span className="text-gray-500">
-                        {app.job?.title || "Unknown job"}
-                      </span>
-                    </span>
-                  </div>
-                ))}
-              </>
-            )}
-          </div>
-        )}
+                    {app.status}
+                  </span>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
@@ -528,6 +601,62 @@ function AdminEmployees() {
           })}
         </DataTable>
       )}
+      {/* Local localStorage-based employees */}
+      {(() => {
+        const localApps = getAllApplicationsAdmin();
+        const localEmployeeMap = new Map<
+          string,
+          { phone: string; name?: string; appliedJobs: number }
+        >();
+        for (const app of localApps) {
+          if (!localEmployeeMap.has(app.employeePhone)) {
+            localEmployeeMap.set(app.employeePhone, {
+              phone: app.employeePhone,
+              name: app.employeeName,
+              appliedJobs: 0,
+            });
+          }
+          const entry = localEmployeeMap.get(app.employeePhone);
+          if (entry) entry.appliedJobs++;
+        }
+        const localEmployees = Array.from(localEmployeeMap.values()).filter(
+          (e) =>
+            !search ||
+            (e.name || e.phone).toLowerCase().includes(search.toLowerCase()),
+        );
+        if (localEmployees.length === 0) return null;
+        return (
+          <div className="px-4 pb-4">
+            <p className="text-xs text-gray-400 mb-2 mt-3">
+              Platform Employees (local data)
+            </p>
+            <DataTable
+              headers={["Name / Phone", "Applications", "Status"]}
+              empty={false}
+            >
+              {localEmployees.map((emp, i) => (
+                <TableRow
+                  key={emp.phone}
+                  data-ocid={`admin.employees.row.${i + 100}`}
+                >
+                  <TableCell className="font-medium">
+                    {emp.name || emp.phone}
+                    <span className="ml-1 text-[10px] text-gray-400">
+                      (local)
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-center">
+                    {emp.appliedJobs}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="secondary">Active</Badge>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </DataTable>
+          </div>
+        );
+      })()}
     </SectionShell>
   );
 }
@@ -741,6 +870,61 @@ function AdminEmployers() {
           )}
         </DataTable>
       )}
+      {/* Local localStorage-based employers */}
+      {(() => {
+        const localJobs = getAllJobsAdmin();
+        const localEmployerMap = new Map<
+          string,
+          { phone: string; company: string; jobsPosted: number }
+        >();
+        for (const job of localJobs) {
+          if (!localEmployerMap.has(job.employerPhone)) {
+            localEmployerMap.set(job.employerPhone, {
+              phone: job.employerPhone,
+              company: job.company,
+              jobsPosted: 0,
+            });
+          }
+          const entry = localEmployerMap.get(job.employerPhone);
+          if (entry) entry.jobsPosted++;
+        }
+        const localEmployers = Array.from(localEmployerMap.values());
+        if (localEmployers.length === 0) return null;
+        return (
+          <div className="px-4 pb-4">
+            <p className="text-xs text-gray-400 mb-2 mt-3">
+              Platform Employers (local data)
+            </p>
+            <DataTable
+              headers={["Company", "Phone", "Jobs Posted", "Plan"]}
+              empty={false}
+            >
+              {localEmployers.map((emp, i) => (
+                <TableRow
+                  key={emp.phone}
+                  data-ocid={`admin.employers.row.${i + 100}`}
+                >
+                  <TableCell className="font-medium">
+                    {emp.company}
+                    <span className="ml-1 text-[10px] text-gray-400">
+                      (local)
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-gray-500">{emp.phone}</TableCell>
+                  <TableCell className="text-center font-semibold">
+                    {emp.jobsPosted}
+                  </TableCell>
+                  <TableCell>
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">
+                      Basic
+                    </span>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </DataTable>
+          </div>
+        );
+      })()}
     </SectionShell>
   );
 }

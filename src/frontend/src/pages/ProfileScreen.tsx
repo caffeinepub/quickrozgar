@@ -49,7 +49,7 @@ const NOTIFICATIONS = [
   },
 ];
 
-const SAMPLE_APPLIED = [
+const _SAMPLE_APPLIED = [
   {
     id: "1",
     company: "Hotel Taj",
@@ -228,7 +228,7 @@ export default function ProfileScreen({
         status: app.status ?? "Applied",
       }));
     }
-    return SAMPLE_APPLIED;
+    return [];
   })();
 
   const displaySaved = savedJobs.length > 0 ? savedJobs : SAMPLE_SAVED;
@@ -470,6 +470,14 @@ export default function ProfileScreen({
               <SheetTitle>📋 Applied Jobs</SheetTitle>
             </SheetHeader>
             <div className="mt-4 space-y-4 pb-4">
+              {displayApplications.length === 0 && (
+                <p
+                  className="text-center text-muted-foreground text-sm py-6"
+                  data-ocid="profile.applied_jobs.empty_state"
+                >
+                  Koi application nahi hai. Jobs mein 'Apply Now' dabao! 🙏
+                </p>
+              )}
               {displayApplications.map((app: any, i: number) => (
                 <div
                   key={app.id ?? String(i)}
