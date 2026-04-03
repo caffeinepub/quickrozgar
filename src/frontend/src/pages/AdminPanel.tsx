@@ -9,7 +9,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { Principal } from "@icp-sdk/core/principal";
 import {
   Bell,
   Briefcase,
@@ -28,7 +27,6 @@ import {
   Trash2,
   TrendingUp,
   UserCheck,
-  UserMinus,
   Users,
   X,
   XCircle,
@@ -37,12 +35,7 @@ import {
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
-import type {
-  EmployerProfile,
-  JobApplication,
-  JobListing,
-  WorkerProfile,
-} from "../backend";
+import type { JobApplication, JobListing } from "../backend";
 import { useActor } from "../hooks/useActor";
 import {
   adminApproveApplication,
@@ -586,69 +579,10 @@ function AdminDashboard() {
 
 // ─── Employees ───────────────────────────────────────────────────────────────
 function AdminEmployees() {
-  const { actor, isFetching } = useActor();
-  const [workers, setWorkers] = useState<Array<[Principal, WorkerProfile]>>([]);
-  const [blocked, setBlocked] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [expandedEmployee, setExpandedEmployee] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!actor || isFetching) return;
-    (async () => {
-      try {
-        const data = await actor.adminGetAllWorkers();
-        setWorkers(data);
-      } catch {
-        setError("No data available (admin access required)");
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [actor, isFetching]);
-
-  const filtered = workers.filter(
-    ([, profile]) =>
-      !search || profile.name.toLowerCase().includes(search.toLowerCase()),
-  );
-
-  const handleBlock = async (principal: Principal) => {
-    if (!actor) return;
-    const key = principal.toString();
-    try {
-      if (blocked.has(key)) {
-        await actor.adminUnblockUser(principal);
-        setBlocked((prev) => {
-          const s = new Set(prev);
-          s.delete(key);
-          return s;
-        });
-        toast.success("User unblocked");
-      } else {
-        await actor.adminBlockUser(principal);
-        setBlocked((prev) => new Set(prev).add(key));
-        toast.success("User blocked");
-      }
-    } catch {
-      toast.error("Action failed");
-    }
-  };
-
-  const handleDelete = async (principal: Principal) => {
-    if (!actor) return;
-    try {
-      await actor.adminDeleteWorker(principal);
-      setWorkers((prev) =>
-        prev.filter(([p]) => p.toString() !== principal.toString()),
-      );
-      toast.success("Employee deleted");
-    } catch {
-      toast.error("Delete failed");
-    }
-  };
-
-  // Local employees from applications
+  // Build employee map from real application data (localStorage)
   const localApps = getAllApplicationsAdmin();
   const localEmployeeMap = new Map<
     string,
@@ -664,6 +598,7 @@ function AdminEmployees() {
     }
     localEmployeeMap.get(app.employeePhone)?.applications.push(app);
   }
+
   const localEmployees = Array.from(localEmployeeMap.values()).filter(
     (e) =>
       !search ||
@@ -677,14 +612,14 @@ function AdminEmployees() {
   return (
     <SectionShell
       title="Employees"
-      description="Manage all registered employees"
+      description="All employees who have submitted applications"
     >
       <div className="px-4 pt-4 pb-2">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
             type="text"
-            placeholder="Search by name..."
+            placeholder="Search by name or phone..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             data-ocid="admin.employees.search_input"
@@ -692,117 +627,58 @@ function AdminEmployees() {
           />
         </div>
       </div>
-      {loading && <LoadingRow />}
-      {error && <ErrorRow message={error} />}
-      {!loading && !error && (
-        <DataTable
-          headers={["Name", "Location", "Status", "Actions"]}
-          empty={filtered.length === 0}
-        >
-          {filtered.map(([principal, profile], i) => {
-            const key = principal.toString();
-            const isBlocked = blocked.has(key);
-            return (
-              <TableRow key={key} data-ocid={`admin.employees.row.${i + 1}`}>
-                <TableCell className="font-medium">
-                  {profile.name || "—"}
-                </TableCell>
-                <TableCell className="text-gray-500">
-                  {profile.location || "—"}
-                </TableCell>
-                <TableCell>
-                  <Badge variant={isBlocked ? "destructive" : "secondary"}>
-                    {isBlocked ? "Blocked" : "Active"}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleBlock(principal)}
-                      data-ocid={`admin.employees.toggle.${i + 1}`}
-                    >
-                      {isBlocked ? (
-                        <UserCheck className="w-3.5 h-3.5 mr-1" />
-                      ) : (
-                        <UserMinus className="w-3.5 h-3.5 mr-1" />
-                      )}
-                      {isBlocked ? "Unblock" : "Block"}
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={() => handleDelete(principal)}
-                      data-ocid={`admin.employees.delete_button.${i + 1}`}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
-                  </div>
+
+      <DataTable
+        headers={["Name / Phone", "Applications", "Status", ""]}
+        empty={localEmployees.length === 0}
+      >
+        {localEmployees.map((emp, i) => (
+          <>
+            <TableRow
+              key={emp.phone}
+              data-ocid={`admin.employees.row.${i + 1}`}
+              className="cursor-pointer hover:bg-gray-50 transition-colors"
+              onClick={() =>
+                setExpandedEmployee(
+                  expandedEmployee === emp.phone ? null : emp.phone,
+                )
+              }
+            >
+              <TableCell className="font-medium">
+                {emp.name || emp.phone}
+                {emp.name && (
+                  <p className="text-xs text-gray-400 font-normal">
+                    {emp.phone}
+                  </p>
+                )}
+              </TableCell>
+              <TableCell className="text-center font-semibold text-gray-800">
+                {emp.applications.length}
+              </TableCell>
+              <TableCell>
+                <Badge variant="secondary">Active</Badge>
+              </TableCell>
+              <TableCell className="text-right">
+                {expandedEmployee === emp.phone ? (
+                  <ChevronUp className="w-4 h-4 text-gray-400 inline" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-gray-400 inline" />
+                )}
+              </TableCell>
+            </TableRow>
+            {expandedEmployee === emp.phone && selectedEmployee && (
+              <TableRow key={`${emp.phone}-detail`}>
+                <TableCell colSpan={4} className="p-0">
+                  <EmployeeDetailPanel
+                    employee={selectedEmployee}
+                    onClose={() => setExpandedEmployee(null)}
+                  />
                 </TableCell>
               </TableRow>
-            );
-          })}
-        </DataTable>
-      )}
-
-      {/* Local localStorage-based employees */}
-      {localEmployees.length > 0 && (
-        <div className="px-4 pb-4">
-          <p className="text-xs text-gray-400 mb-2 mt-3">
-            Platform Employees (local data)
-          </p>
-          <DataTable
-            headers={["Name / Phone", "Applications", "Status", ""]}
-            empty={false}
-          >
-            {localEmployees.map((emp, i) => (
-              <>
-                <TableRow
-                  key={emp.phone}
-                  data-ocid={`admin.employees.row.${i + 100}`}
-                  className="cursor-pointer hover:bg-gray-50 transition-colors"
-                  onClick={() =>
-                    setExpandedEmployee(
-                      expandedEmployee === emp.phone ? null : emp.phone,
-                    )
-                  }
-                >
-                  <TableCell className="font-medium">
-                    {emp.name || emp.phone}
-                    <span className="ml-1 text-[10px] text-gray-400">
-                      (local)
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-center">
-                    {emp.applications.length}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="secondary">Active</Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {expandedEmployee === emp.phone ? (
-                      <ChevronUp className="w-4 h-4 text-gray-400 inline" />
-                    ) : (
-                      <ChevronDown className="w-4 h-4 text-gray-400 inline" />
-                    )}
-                  </TableCell>
-                </TableRow>
-                {expandedEmployee === emp.phone && selectedEmployee && (
-                  <TableRow key={`${emp.phone}-detail`}>
-                    <TableCell colSpan={4} className="p-0">
-                      <EmployeeDetailPanel
-                        employee={selectedEmployee}
-                        onClose={() => setExpandedEmployee(null)}
-                      />
-                    </TableCell>
-                  </TableRow>
-                )}
-              </>
-            ))}
-          </DataTable>
-        </div>
-      )}
+            )}
+          </>
+        ))}
+      </DataTable>
     </SectionShell>
   );
 }
@@ -882,92 +758,11 @@ function EmployeeDetailPanel({
 }
 
 // ─── Employers ───────────────────────────────────────────────────────────────
-type EmployerActivityRow = [Principal, EmployerProfile, bigint, bigint, string];
-
 function AdminEmployers() {
-  const { actor, isFetching } = useActor();
-  const [employers, setEmployers] = useState<EmployerActivityRow[]>([]);
-  const [blocked, setBlocked] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(true);
+  const [expandedEmployer, setExpandedEmployer] = useState<string | null>(null);
   const [planSelections, setPlanSelections] = useState<Record<string, string>>(
     {},
   );
-  const [error, setError] = useState("");
-  const [expandedEmployer, setExpandedEmployer] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!actor || isFetching) return;
-    (async () => {
-      try {
-        const data = await actor.adminGetAllEmployerActivity();
-        setEmployers(data);
-        const initialPlans: Record<string, string> = {};
-        for (const [principal, , , , plan] of data) {
-          initialPlans[principal.toString()] = plan;
-        }
-        setPlanSelections(initialPlans);
-      } catch {
-        setError("No data available (admin access required)");
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [actor, isFetching]);
-
-  const handleBlock = async (principal: Principal) => {
-    if (!actor) return;
-    const key = principal.toString();
-    try {
-      if (blocked.has(key)) {
-        await actor.adminUnblockUser(principal);
-        setBlocked((prev) => {
-          const s = new Set(prev);
-          s.delete(key);
-          return s;
-        });
-        toast.success("Employer unblocked");
-      } else {
-        await actor.adminBlockUser(principal);
-        setBlocked((prev) => new Set(prev).add(key));
-        toast.success("Employer blocked");
-      }
-    } catch {
-      toast.error("Action failed");
-    }
-  };
-
-  const handleDelete = async (principal: Principal) => {
-    if (!actor) return;
-    try {
-      await actor.adminDeleteEmployer(principal);
-      setEmployers((prev) =>
-        prev.filter(([p]) => p.toString() !== principal.toString()),
-      );
-      toast.success("Employer deleted");
-    } catch {
-      toast.error("Delete failed");
-    }
-  };
-
-  const handleSetPlan = async (principal: Principal) => {
-    if (!actor) return;
-    const key = principal.toString();
-    const plan = planSelections[key];
-    if (!plan) return;
-    try {
-      await actor.adminSetEmployerPlan(principal, plan);
-      setEmployers((prev) =>
-        prev.map(([p, profile, jobs, applicants, oldPlan]) =>
-          p.toString() === key
-            ? [p, profile, jobs, applicants, plan]
-            : [p, profile, jobs, applicants, oldPlan],
-        ),
-      );
-      toast.success(`Plan updated to ${plan}`);
-    } catch {
-      toast.error("Failed to update plan");
-    }
-  };
 
   const planBadgeClass = (plan: string) => {
     if (plan === "Gold")
@@ -977,7 +772,7 @@ function AdminEmployers() {
     return "bg-gray-100 text-gray-600 border border-gray-200";
   };
 
-  // Local employers from jobs data
+  // Build employer map from real jobs data (localStorage)
   const localJobs = getAllJobsAdmin();
   const localApps = getAllApplicationsAdmin();
   const localEmployerMap = new Map<
@@ -1000,187 +795,110 @@ function AdminEmployers() {
     ? localEmployerMap.get(expandedEmployer)
     : null;
 
+  const handleSetPlan = (phone: string) => {
+    const plan = planSelections[phone];
+    if (!plan) return;
+    try {
+      localStorage.setItem(`qr_erp_plan_${phone}`, JSON.stringify(plan));
+      toast.success(`Plan updated to ${plan}`);
+    } catch {
+      toast.error("Failed to update plan");
+    }
+  };
+
   return (
     <SectionShell
       title="Employers"
-      description="Manage all registered employers and their plans"
+      description="All employers who have posted jobs"
     >
-      {loading && <LoadingRow />}
-      {error && <ErrorRow message={error} />}
-      {!loading && !error && (
-        <DataTable
-          headers={[
-            "Company Name",
-            "Location",
-            "Jobs Posted",
-            "Applicants",
-            "Plan",
-            "Change Plan",
-            "Status",
-            "Actions",
-          ]}
-          empty={employers.length === 0}
-        >
-          {employers.map(
-            ([principal, profile, jobsPosted, totalApplicants, plan], i) => {
-              const key = principal.toString();
-              const isBlocked = blocked.has(key);
-              return (
-                <TableRow key={key} data-ocid={`admin.employers.row.${i + 1}`}>
-                  <TableCell className="font-medium">
-                    {profile.companyName || "—"}
-                  </TableCell>
-                  <TableCell className="text-gray-500">
-                    {profile.location || "—"}
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <span className="font-semibold text-gray-800">
-                      {jobsPosted.toString()}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <span className="font-semibold text-gray-800">
-                      {totalApplicants.toString()}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${planBadgeClass(plan)}`}
+      <DataTable
+        headers={["Company", "Plan", "Change Plan", "Jobs Posted", ""]}
+        empty={localEmployers.length === 0}
+      >
+        {localEmployers.map((emp, i) => {
+          const plan = planSelections[emp.phone] ?? getEmployerPlan(emp.phone);
+          return (
+            <>
+              <TableRow
+                key={emp.phone}
+                data-ocid={`admin.employers.row.${i + 1}`}
+                className="cursor-pointer hover:bg-gray-50 transition-colors"
+                onClick={() =>
+                  setExpandedEmployer(
+                    expandedEmployer === emp.phone ? null : emp.phone,
+                  )
+                }
+              >
+                <TableCell className="font-medium">
+                  {emp.company}
+                  <p className="text-xs text-gray-400 font-normal">
+                    {emp.phone}
+                  </p>
+                </TableCell>
+                <TableCell>
+                  <span
+                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${planBadgeClass(plan)}`}
+                  >
+                    {plan}
+                  </span>
+                </TableCell>
+                <TableCell onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center gap-1.5">
+                    <select
+                      value={
+                        planSelections[emp.phone] ?? getEmployerPlan(emp.phone)
+                      }
+                      onChange={(e) =>
+                        setPlanSelections((prev) => ({
+                          ...prev,
+                          [emp.phone]: e.target.value,
+                        }))
+                      }
+                      data-ocid={`admin.employers.select.${i + 1}`}
+                      className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/30"
                     >
-                      {plan || "Basic"}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1.5">
-                      <select
-                        value={planSelections[key] || plan}
-                        onChange={(e) =>
-                          setPlanSelections((prev) => ({
-                            ...prev,
-                            [key]: e.target.value,
-                          }))
-                        }
-                        data-ocid={`admin.employers.select.${i + 1}`}
-                        className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                      >
-                        <option value="Basic">Basic</option>
-                        <option value="Silver">Silver</option>
-                        <option value="Gold">Gold</option>
-                      </select>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleSetPlan(principal)}
-                        data-ocid={`admin.employers.save_button.${i + 1}`}
-                        className="text-xs h-7 px-2"
-                      >
-                        Set
-                      </Button>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={isBlocked ? "destructive" : "secondary"}>
-                      {isBlocked ? "Blocked" : "Active"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleBlock(principal)}
-                        data-ocid={`admin.employers.toggle.${i + 1}`}
-                      >
-                        {isBlocked ? (
-                          <UserCheck className="w-3.5 h-3.5 mr-1" />
-                        ) : (
-                          <UserMinus className="w-3.5 h-3.5 mr-1" />
-                        )}
-                        {isBlocked ? "Unblock" : "Block"}
-                      </Button>
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        onClick={() => handleDelete(principal)}
-                        data-ocid={`admin.employers.delete_button.${i + 1}`}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
+                      <option value="Basic">Basic</option>
+                      <option value="Silver">Silver</option>
+                      <option value="Gold">Gold</option>
+                    </select>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleSetPlan(emp.phone)}
+                      data-ocid={`admin.employers.save_button.${i + 1}`}
+                      className="text-xs h-7 px-2"
+                    >
+                      Set
+                    </Button>
+                  </div>
+                </TableCell>
+                <TableCell className="text-center font-semibold text-gray-800">
+                  {emp.jobs.length}
+                </TableCell>
+                <TableCell className="text-right">
+                  {expandedEmployer === emp.phone ? (
+                    <ChevronUp className="w-4 h-4 text-gray-400 inline" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4 text-gray-400 inline" />
+                  )}
+                </TableCell>
+              </TableRow>
+              {expandedEmployer === emp.phone && selectedEmployerData && (
+                <TableRow key={`${emp.phone}-detail`}>
+                  <TableCell colSpan={5} className="p-0">
+                    <EmployerDetailPanel
+                      employer={selectedEmployerData}
+                      plan={getEmployerPlan(emp.phone)}
+                      allApps={localApps}
+                      onClose={() => setExpandedEmployer(null)}
+                    />
                   </TableCell>
                 </TableRow>
-              );
-            },
-          )}
-        </DataTable>
-      )}
-
-      {/* Local employers table with clickable detail */}
-      {localEmployers.length > 0 && (
-        <div className="px-4 pb-4">
-          <p className="text-xs text-gray-400 mb-2 mt-3">
-            Platform Employers (local data)
-          </p>
-          <DataTable
-            headers={["Company", "Plan", "Jobs Posted", ""]}
-            empty={false}
-          >
-            {localEmployers.map((emp, i) => {
-              const plan = getEmployerPlan(emp.phone);
-              return (
-                <>
-                  <TableRow
-                    key={emp.phone}
-                    data-ocid={`admin.employers.row.${i + 100}`}
-                    className="cursor-pointer hover:bg-gray-50 transition-colors"
-                    onClick={() =>
-                      setExpandedEmployer(
-                        expandedEmployer === emp.phone ? null : emp.phone,
-                      )
-                    }
-                  >
-                    <TableCell className="font-medium">
-                      {emp.company}
-                      <span className="ml-1 text-[10px] text-gray-400">
-                        (local)
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${planBadgeClass(plan)}`}
-                      >
-                        {plan}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-center font-semibold">
-                      {emp.jobs.length}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {expandedEmployer === emp.phone ? (
-                        <ChevronUp className="w-4 h-4 text-gray-400 inline" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4 text-gray-400 inline" />
-                      )}
-                    </TableCell>
-                  </TableRow>
-                  {expandedEmployer === emp.phone && selectedEmployerData && (
-                    <TableRow key={`${emp.phone}-detail`}>
-                      <TableCell colSpan={4} className="p-0">
-                        <EmployerDetailPanel
-                          employer={selectedEmployerData}
-                          plan={plan}
-                          allApps={localApps}
-                          onClose={() => setExpandedEmployer(null)}
-                        />
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </>
-              );
-            })}
-          </DataTable>
-        </div>
-      )}
+              )}
+            </>
+          );
+        })}
+      </DataTable>
     </SectionShell>
   );
 }
@@ -1959,28 +1677,6 @@ function DataTable({
           )}
         </TableBody>
       </Table>
-    </div>
-  );
-}
-
-function LoadingRow() {
-  return (
-    <div
-      className="flex items-center gap-2 text-gray-400 p-6"
-      data-ocid="admin.loading_state"
-    >
-      <Loader2 className="w-4 h-4 animate-spin" /> Loading...
-    </div>
-  );
-}
-
-function ErrorRow({ message }: { message: string }) {
-  return (
-    <div
-      className="p-6 text-sm text-amber-700 bg-amber-50 border-b border-amber-100"
-      data-ocid="admin.error_state"
-    >
-      {message}
     </div>
   );
 }

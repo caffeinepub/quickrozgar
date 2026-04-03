@@ -1,21 +1,21 @@
 import { useEffect, useState } from "react";
-import { useInternetIdentity } from "../hooks/useInternetIdentity";
+import {
+  clearAdminSession,
+  isAdminLoggedIn,
+  saveAdminSession,
+} from "../utils/adminSession";
 import AdminLoginScreen from "./AdminLoginScreen";
 import AdminPanel from "./AdminPanel";
 
 export default function AdminApp() {
-  const [loggedIn, setLoggedIn] = useState(
-    () => localStorage.getItem("adminLoggedIn") === "true",
-  );
-  const { clear } = useInternetIdentity();
+  const [loggedIn, setLoggedIn] = useState(() => isAdminLoggedIn());
 
   useEffect(() => {
     document.title = "Quick Rozgar Admin";
   }, []);
 
-  const handleLogout = async () => {
-    localStorage.removeItem("adminLoggedIn");
-    await clear();
+  const handleLogout = () => {
+    clearAdminSession();
     setLoggedIn(false);
   };
 
@@ -24,7 +24,7 @@ export default function AdminApp() {
   ) : (
     <AdminLoginScreen
       onLogin={() => {
-        localStorage.setItem("adminLoggedIn", "true");
+        saveAdminSession();
         setLoggedIn(true);
       }}
     />

@@ -97,8 +97,12 @@ function NamePromptModal({
 }
 
 export default function App() {
-  const isAdminHash =
-    typeof window !== "undefined" && window.location.hash === "#admin";
+  const isAdminRoute =
+    typeof window !== "undefined" &&
+    (window.location.hash === "#admin" ||
+      window.location.pathname === "/admin" ||
+      window.location.pathname.startsWith("/admin/") ||
+      new URLSearchParams(window.location.search).get("panel") === "admin");
 
   // Check localStorage for an existing session immediately
   const initialScreen = (): Screen => {
@@ -169,7 +173,7 @@ export default function App() {
   const activeTab = screen.id === "main" ? screen.tab : "home";
   const showBottomNav = screen.id === "main";
 
-  if (isAdminHash) return <AdminApp />;
+  if (isAdminRoute) return <AdminApp />;
 
   // Get current employee session for name prompt
   const empSess = screen.id === "main" ? getEmployeeSession() : null;
