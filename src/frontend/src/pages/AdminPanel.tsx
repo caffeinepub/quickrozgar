@@ -14,21 +14,29 @@ import {
   Bell,
   Briefcase,
   CheckCircle,
+  ChevronDown,
+  ChevronUp,
   ClipboardList,
+  Download,
+  FileSpreadsheet,
+  IndianRupee,
   LayoutDashboard,
   Loader2,
   LogOut,
   Menu,
   Search,
   Trash2,
+  TrendingUp,
   UserCheck,
   UserMinus,
   Users,
   X,
+  XCircle,
   Zap,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import * as XLSX from "xlsx";
 import type {
   EmployerProfile,
   JobApplication,
@@ -43,6 +51,8 @@ import {
   adminRejectJob,
   deleteJob,
   getAllApplicationsAdmin,
+  getAllEmployeeProfiles,
+  getAllEmployerProfilesForExport,
   getAllJobsAdmin,
 } from "../utils/localDb";
 import type { LocalApplication, LocalJob } from "../utils/localDb";
@@ -52,11 +62,21 @@ type Section =
   | "employees"
   | "employers"
   | "jobs"
-  | "applications";
+  | "applications"
+  | "reports";
 
 interface AdminPanelProps {
   onLogout: () => void;
 }
+
+const JOB_CATEGORIES = [
+  "Waiter",
+  "Chef",
+  "Housekeeping",
+  "Delivery Boy",
+  "Call Centre Jobs",
+  "Retail Jobs",
+];
 
 const navItems: { id: Section; label: string; icon: React.ReactNode }[] = [
   {
@@ -76,7 +96,26 @@ const navItems: { id: Section; label: string; icon: React.ReactNode }[] = [
     label: "Applications",
     icon: <ClipboardList className="w-4 h-4" />,
   },
+  {
+    id: "reports",
+    label: "Reports",
+    icon: <FileSpreadsheet className="w-4 h-4" />,
+  },
 ];
+
+// Helper to get employer plan from localStorage
+function getEmployerPlan(phone: string): "Basic" | "Silver" | "Gold" {
+  try {
+    const raw = localStorage.getItem(`qr_erp_plan_${phone}`);
+    if (raw) {
+      const val = raw.trim().replace(/"/g, "");
+      if (val === "Silver" || val === "Gold") return val;
+    }
+  } catch {
+    // ignore
+  }
+  return "Basic";
+}
 
 export default function AdminPanel({ onLogout }: AdminPanelProps) {
   const [section, setSection] = useState<Section>("dashboard");
@@ -192,6 +231,7 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
           {section === "employers" && <AdminEmployers />}
           {section === "jobs" && <AdminJobs />}
           {section === "applications" && <AdminApplications />}
+          {section === "reports" && <AdminReports />}
         </main>
       </div>
     </div>
@@ -199,45 +239,51 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
 }
 
 // ─── Dashboard ───────────────────────────────────────────────────────────────
+type ActivityFilter = "today" | "week" | "month";
+
+function isWithinPeriod(ts: number, filter: ActivityFilter): boolean {
+  const now = new Date();
+  const d = new Date(ts);
+  if (filter === "today") {
+    return (
+      d.getFullYear() === now.getFullYear() &&
+      d.getMonth() === now.getMonth() &&
+      d.getDate() === now.getDate()
+    );
+  }
+  if (filter === "week") {
+    const weekAgo = new Date(now);
+    weekAgo.setDate(now.getDate() - 7);
+    return d >= weekAgo;
+  }
+  // month
+  const monthAgo = new Date(now);
+  monthAgo.setDate(now.getDate() - 30);
+  return d >= monthAgo;
+}
+
 function AdminDashboard() {
   const { actor, isFetching } = useActor();
-  const [stats, setStats] = useState<{
-    totalUsers: string;
-    totalEmployers: string;
-    totalJobs: string;
-    totalApplications: string;
-    activeJobs: string;
-  } | null>(null);
+
   const [recentActivity, setRecentActivity] = useState<{
     recentJobs: JobListing[];
     recentApplications: JobApplication[];
   } | null>(null);
-  const [loading, setLoading] = useState(true);
   const [notificationDismissed, setNotificationDismissed] = useState(false);
+  const [activityFilter, setActivityFilter] = useState<ActivityFilter>("today");
 
   useEffect(() => {
     if (!actor || isFetching) return;
     (async () => {
       try {
-        const [s, activity] = await Promise.all([
-          actor.adminGetStats(),
-          actor.adminGetRecentActivity(),
-        ]);
-        setStats({
-          totalUsers: s.totalUsers.toString(),
-          totalEmployers: s.totalEmployers.toString(),
-          totalJobs: s.totalJobs.toString(),
-          totalApplications: s.totalApplications.toString(),
-          activeJobs: s.activeJobs.toString(),
-        });
+        const activity = await actor.adminGetRecentActivity();
+
         setRecentActivity({
           recentJobs: activity.recentJobs.slice(0, 5),
           recentApplications: activity.recentApplications.slice(0, 5),
         });
       } catch {
-        toast.error("Failed to load stats");
-      } finally {
-        setLoading(false);
+        // ignore
       }
     })();
   }, [actor, isFetching]);
@@ -246,38 +292,49 @@ function AdminDashboard() {
     (recentActivity?.recentJobs.length ?? 0) +
     (recentActivity?.recentApplications.length ?? 0);
 
-  const cards = [
-    {
-      label: "Total Users",
-      value: stats?.totalUsers ?? "—",
-      icon: <Users className="w-5 h-5" />,
-      color: "text-blue-600 bg-blue-50",
-    },
-    {
-      label: "Total Employers",
-      value: stats?.totalEmployers ?? "—",
-      icon: <UserCheck className="w-5 h-5" />,
-      color: "text-emerald-600 bg-emerald-50",
-    },
-    {
-      label: "Total Jobs",
-      value: stats?.totalJobs ?? "—",
-      icon: <Briefcase className="w-5 h-5" />,
-      color: "text-violet-600 bg-violet-50",
-    },
-    {
-      label: "Active Jobs",
-      value: stats?.activeJobs ?? "—",
-      icon: <Zap className="w-5 h-5" />,
-      color: "text-green-600 bg-green-50",
-    },
-    {
-      label: "Total Applications",
-      value: stats?.totalApplications ?? "—",
-      icon: <ClipboardList className="w-5 h-5" />,
-      color: "text-amber-600 bg-amber-50",
-    },
-  ];
+  // Compute local stats
+  const localJobs = getAllJobsAdmin();
+  const localApps = getAllApplicationsAdmin();
+
+  const totalJobs = localJobs.length;
+  const approvedJobs = localJobs.filter((j) => j.status === "Approved").length;
+  const pendingJobs = localJobs.filter((j) => j.status === "Pending").length;
+  const rejectedJobs = localJobs.filter((j) => j.status === "Rejected").length;
+  const rejectedApps = localApps.filter((a) => a.status === "Rejected").length;
+
+  // Subscription plan stats
+  const employerPhones = Array.from(
+    new Set(localJobs.map((j) => j.employerPhone)),
+  );
+  let basicCount = 0;
+  let silverCount = 0;
+  let goldCount = 0;
+  for (const phone of employerPhones) {
+    const plan = getEmployerPlan(phone);
+    if (plan === "Gold") goldCount++;
+    else if (plan === "Silver") silverCount++;
+    else basicCount++;
+  }
+  const revenue = basicCount * 999 + silverCount * 2499 + goldCount * 4999;
+
+  // Activity filter
+  const filteredJobs = localJobs.filter((j) =>
+    isWithinPeriod(j.postedAt, activityFilter),
+  );
+  const filteredApps = localApps.filter((a) =>
+    isWithinPeriod(a.appliedAt, activityFilter),
+  );
+  const rejectedFilteredApps = filteredApps.filter(
+    (a) => a.status === "Rejected",
+  );
+
+  const planBadgeClass = (plan: string) => {
+    if (plan === "Gold")
+      return "bg-amber-100 text-amber-700 border border-amber-200";
+    if (plan === "Silver")
+      return "bg-blue-100 text-blue-700 border border-blue-200";
+    return "bg-gray-100 text-gray-600 border border-gray-200";
+  };
 
   return (
     <div className="space-y-6">
@@ -306,140 +363,169 @@ function AdminDashboard() {
         </div>
       )}
 
+      {/* Enhanced Job Stats */}
       <div>
-        <h2 className="text-lg font-semibold text-gray-900">Overview</h2>
-        <p className="text-sm text-gray-500 mt-0.5">
-          Platform statistics at a glance
+        <h2 className="text-lg font-semibold text-gray-900">Job Statistics</h2>
+        <p className="text-sm text-gray-500 mt-0.5 mb-3">
+          Complete breakdown of all jobs on platform
         </p>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center mb-3 text-violet-600 bg-violet-50">
+              <Briefcase className="w-5 h-5" />
+            </div>
+            <p className="text-2xl font-bold text-gray-900">{totalJobs}</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Total Jobs (all time)
+            </p>
+          </div>
+          <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center mb-3 text-green-600 bg-green-50">
+              <CheckCircle className="w-5 h-5" />
+            </div>
+            <p className="text-2xl font-bold text-green-700">{approvedJobs}</p>
+            <p className="text-xs text-gray-500 mt-0.5">Approved Jobs</p>
+          </div>
+          <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center mb-3 text-orange-600 bg-orange-50">
+              <Zap className="w-5 h-5" />
+            </div>
+            <p className="text-2xl font-bold text-orange-700">{pendingJobs}</p>
+            <p className="text-xs text-gray-500 mt-0.5">Pending Jobs</p>
+          </div>
+          <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center mb-3 text-red-600 bg-red-50">
+              <XCircle className="w-5 h-5" />
+            </div>
+            <p className="text-2xl font-bold text-red-700">{rejectedJobs}</p>
+            <p className="text-xs text-gray-500 mt-0.5">Rejected Jobs</p>
+          </div>
+        </div>
       </div>
 
-      {loading ? (
-        <div
-          className="flex items-center gap-2 text-gray-500"
-          data-ocid="admin.loading_state"
-        >
-          <Loader2 className="w-4 h-4 animate-spin" /> Loading stats...
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-          {cards.map((card) => (
-            <div
-              key={card.label}
-              className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm"
-            >
-              <div
-                className={`w-9 h-9 rounded-lg flex items-center justify-center mb-3 ${card.color}`}
-              >
-                {card.icon}
-              </div>
-              <p className="text-2xl font-bold text-gray-900">{card.value}</p>
-              <p className="text-xs text-gray-500 mt-0.5">{card.label}</p>
+      {/* Application & Revenue Stats */}
+      <div>
+        <h2 className="text-lg font-semibold text-gray-900">
+          Applications & Revenue
+        </h2>
+        <p className="text-sm text-gray-500 mt-0.5 mb-3">
+          Application rejections and subscription revenue
+        </p>
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center mb-3 text-red-600 bg-red-50">
+              <XCircle className="w-5 h-5" />
             </div>
-          ))}
-        </div>
-      )}
-
-      {/* Platform Activity (Local Stats) */}
-      {(() => {
-        const localJobs = getAllJobsAdmin();
-        const localApps = getAllApplicationsAdmin();
-        const pendingJobs = localJobs.filter(
-          (j) => j.status === "Pending",
-        ).length;
-        const approvedJobs = localJobs.filter(
-          (j) => j.status === "Approved",
-        ).length;
-        const pendingApps = localApps.filter(
-          (a) => a.status === "Pending",
-        ).length;
-        const platformCards = [
-          {
-            label: "Pending Jobs",
-            value: pendingJobs,
-            color: "text-orange-600 bg-orange-50",
-          },
-          {
-            label: "Approved Jobs",
-            value: approvedJobs,
-            color: "text-green-600 bg-green-50",
-          },
-          {
-            label: "Total Applications",
-            value: localApps.length,
-            color: "text-blue-600 bg-blue-50",
-          },
-          {
-            label: "Pending Applications",
-            value: pendingApps,
-            color: "text-amber-600 bg-amber-50",
-          },
-        ];
-        return (
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900">
-              Platform Activity
-            </h2>
-            <p className="text-sm text-gray-500 mt-0.5 mb-3">
-              Real-time data from local platform
+            <p className="text-2xl font-bold text-red-700">{rejectedApps}</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Rejected Applications
             </p>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              {platformCards.map((card) => (
-                <div
-                  key={card.label}
-                  className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm"
+          </div>
+          <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center mb-3 text-emerald-600 bg-emerald-50">
+              <IndianRupee className="w-5 h-5" />
+            </div>
+            <p className="text-2xl font-bold text-emerald-700">
+              ₹{revenue.toLocaleString("en-IN")}
+            </p>
+            <p className="text-xs text-gray-500 mt-0.5">Subscription Revenue</p>
+          </div>
+          <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm col-span-2 lg:col-span-1">
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center mb-3 text-amber-600 bg-amber-50">
+              <TrendingUp className="w-5 h-5" />
+            </div>
+            <p className="text-xs font-semibold text-gray-600 mb-2">
+              Subscription Plans
+            </p>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span
+                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${planBadgeClass("Basic")}`}
                 >
-                  <p
-                    className={`text-2xl font-bold ${card.color.split(" ")[0]}`}
-                  >
-                    {card.value}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-0.5">{card.label}</p>
-                </div>
-              ))}
+                  Basic
+                </span>
+                <span className="font-bold text-gray-800">{basicCount}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span
+                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${planBadgeClass("Silver")}`}
+                >
+                  Silver
+                </span>
+                <span className="font-bold text-gray-800">{silverCount}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span
+                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${planBadgeClass("Gold")}`}
+                >
+                  Gold
+                </span>
+                <span className="font-bold text-gray-800">{goldCount}</span>
+              </div>
             </div>
           </div>
-        );
-      })()}
+        </div>
+      </div>
 
-      {/* Recent Activity */}
+      {/* Platform Activity with time filter */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
-        <h3 className="font-semibold text-gray-900 mb-3">Recent Activity</h3>
-        {(() => {
-          const recentLocalJobs = getAllJobsAdmin()
-            .sort((a, b) => b.postedAt - a.postedAt)
-            .slice(0, 5);
-          const recentLocalApps = getAllApplicationsAdmin()
-            .sort((a, b) => b.appliedAt - a.appliedAt)
-            .slice(0, 5);
-          const hasLocalData =
-            recentLocalJobs.length > 0 || recentLocalApps.length > 0;
-          if (!hasLocalData) {
-            return (
-              <p className="text-sm text-gray-400">
-                No recent activity to display.
-              </p>
-            );
-          }
-          return (
-            <div className="space-y-2">
-              {recentLocalJobs.map((job) => (
-                <div
-                  key={job.id}
-                  className="flex items-center gap-2 text-sm text-gray-700 py-1 border-b border-gray-50 last:border-0"
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <h3 className="font-semibold text-gray-900">Platform Activity</h3>
+          <div className="flex gap-1" data-ocid="admin.dashboard.tab">
+            {(["today", "week", "month"] as ActivityFilter[]).map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setActivityFilter(f)}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  activityFilter === f
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                }`}
+              >
+                {f === "today"
+                  ? "Today"
+                  : f === "week"
+                    ? "This Week"
+                    : "This Month"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Recent Jobs */}
+        {filteredJobs.length === 0 && filteredApps.length === 0 ? (
+          <p className="text-sm text-gray-400 py-2">
+            No activity for this period.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {filteredJobs.map((job) => (
+              <div
+                key={job.id}
+                className="flex items-center gap-2 text-sm text-gray-700 py-1 border-b border-gray-50 last:border-0"
+              >
+                <span>📋</span>
+                <span>
+                  New job: <span className="font-medium">{job.title}</span> at{" "}
+                  <span className="text-gray-500">{job.company}</span>
+                </span>
+                <span
+                  className={`ml-auto text-xs px-2 py-0.5 rounded-full font-medium ${
+                    job.status === "Approved"
+                      ? "bg-green-100 text-green-700"
+                      : job.status === "Rejected"
+                        ? "bg-red-100 text-red-700"
+                        : "bg-orange-100 text-orange-700"
+                  }`}
                 >
-                  <span>📋</span>
-                  <span>
-                    New job: <span className="font-medium">{job.title}</span> at{" "}
-                    <span className="text-gray-500">{job.company}</span>
-                  </span>
-                  <span
-                    className={`ml-auto text-xs px-2 py-0.5 rounded-full font-medium ${job.status === "Approved" ? "bg-green-100 text-green-700" : job.status === "Rejected" ? "bg-red-100 text-red-700" : "bg-orange-100 text-orange-700"}`}
-                  >
-                    {job.status}
-                  </span>
-                </div>
-              ))}
-              {recentLocalApps.map((app) => (
+                  {job.status}
+                </span>
+              </div>
+            ))}
+            {filteredApps
+              .filter((a) => a.status !== "Rejected")
+              .map((app) => (
                 <div
                   key={app.id}
                   className="flex items-center gap-2 text-sm text-gray-700 py-1 border-b border-gray-50 last:border-0"
@@ -453,15 +539,46 @@ function AdminDashboard() {
                     → <span className="text-gray-500">{app.jobTitle}</span>
                   </span>
                   <span
-                    className={`ml-auto text-xs px-2 py-0.5 rounded-full font-medium ${app.status === "Approved" ? "bg-green-100 text-green-700" : app.status === "Rejected" ? "bg-red-100 text-red-700" : "bg-orange-100 text-orange-700"}`}
+                    className={`ml-auto text-xs px-2 py-0.5 rounded-full font-medium ${
+                      app.status === "Approved"
+                        ? "bg-green-100 text-green-700"
+                        : "bg-orange-100 text-orange-700"
+                    }`}
                   >
                     {app.status}
                   </span>
                 </div>
               ))}
+          </div>
+        )}
+
+        {/* Rejected Applications sub-section */}
+        {rejectedFilteredApps.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-gray-100">
+            <h4 className="text-sm font-semibold text-red-700 mb-2 flex items-center gap-1.5">
+              <XCircle className="w-3.5 h-3.5" /> Rejected Applications
+            </h4>
+            <div className="space-y-2">
+              {rejectedFilteredApps.map((app) => (
+                <div
+                  key={app.id}
+                  className="flex items-center gap-2 text-sm text-gray-700 py-1"
+                >
+                  <span>🚫</span>
+                  <span>
+                    <span className="font-medium">
+                      {app.employeeName || app.employeePhone}
+                    </span>{" "}
+                    → <span className="text-gray-500">{app.jobTitle}</span>
+                  </span>
+                  <span className="ml-auto text-xs px-2 py-0.5 rounded-full font-medium bg-red-100 text-red-700">
+                    Rejected
+                  </span>
+                </div>
+              ))}
             </div>
-          );
-        })()}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -475,6 +592,7 @@ function AdminEmployees() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [expandedEmployee, setExpandedEmployee] = useState<string | null>(null);
 
   useEffect(() => {
     if (!actor || isFetching) return;
@@ -529,6 +647,32 @@ function AdminEmployees() {
       toast.error("Delete failed");
     }
   };
+
+  // Local employees from applications
+  const localApps = getAllApplicationsAdmin();
+  const localEmployeeMap = new Map<
+    string,
+    { phone: string; name?: string; applications: LocalApplication[] }
+  >();
+  for (const app of localApps) {
+    if (!localEmployeeMap.has(app.employeePhone)) {
+      localEmployeeMap.set(app.employeePhone, {
+        phone: app.employeePhone,
+        name: app.employeeName,
+        applications: [],
+      });
+    }
+    localEmployeeMap.get(app.employeePhone)?.applications.push(app);
+  }
+  const localEmployees = Array.from(localEmployeeMap.values()).filter(
+    (e) =>
+      !search ||
+      (e.name || e.phone).toLowerCase().includes(search.toLowerCase()),
+  );
+
+  const selectedEmployee = expandedEmployee
+    ? localEmployeeMap.get(expandedEmployee)
+    : null;
 
   return (
     <SectionShell
@@ -601,43 +745,28 @@ function AdminEmployees() {
           })}
         </DataTable>
       )}
+
       {/* Local localStorage-based employees */}
-      {(() => {
-        const localApps = getAllApplicationsAdmin();
-        const localEmployeeMap = new Map<
-          string,
-          { phone: string; name?: string; appliedJobs: number }
-        >();
-        for (const app of localApps) {
-          if (!localEmployeeMap.has(app.employeePhone)) {
-            localEmployeeMap.set(app.employeePhone, {
-              phone: app.employeePhone,
-              name: app.employeeName,
-              appliedJobs: 0,
-            });
-          }
-          const entry = localEmployeeMap.get(app.employeePhone);
-          if (entry) entry.appliedJobs++;
-        }
-        const localEmployees = Array.from(localEmployeeMap.values()).filter(
-          (e) =>
-            !search ||
-            (e.name || e.phone).toLowerCase().includes(search.toLowerCase()),
-        );
-        if (localEmployees.length === 0) return null;
-        return (
-          <div className="px-4 pb-4">
-            <p className="text-xs text-gray-400 mb-2 mt-3">
-              Platform Employees (local data)
-            </p>
-            <DataTable
-              headers={["Name / Phone", "Applications", "Status"]}
-              empty={false}
-            >
-              {localEmployees.map((emp, i) => (
+      {localEmployees.length > 0 && (
+        <div className="px-4 pb-4">
+          <p className="text-xs text-gray-400 mb-2 mt-3">
+            Platform Employees (local data)
+          </p>
+          <DataTable
+            headers={["Name / Phone", "Applications", "Status", ""]}
+            empty={false}
+          >
+            {localEmployees.map((emp, i) => (
+              <>
                 <TableRow
                   key={emp.phone}
                   data-ocid={`admin.employees.row.${i + 100}`}
+                  className="cursor-pointer hover:bg-gray-50 transition-colors"
+                  onClick={() =>
+                    setExpandedEmployee(
+                      expandedEmployee === emp.phone ? null : emp.phone,
+                    )
+                  }
                 >
                   <TableCell className="font-medium">
                     {emp.name || emp.phone}
@@ -646,18 +775,109 @@ function AdminEmployees() {
                     </span>
                   </TableCell>
                   <TableCell className="text-center">
-                    {emp.appliedJobs}
+                    {emp.applications.length}
                   </TableCell>
                   <TableCell>
                     <Badge variant="secondary">Active</Badge>
                   </TableCell>
+                  <TableCell className="text-right">
+                    {expandedEmployee === emp.phone ? (
+                      <ChevronUp className="w-4 h-4 text-gray-400 inline" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4 text-gray-400 inline" />
+                    )}
+                  </TableCell>
                 </TableRow>
-              ))}
-            </DataTable>
-          </div>
-        );
-      })()}
+                {expandedEmployee === emp.phone && selectedEmployee && (
+                  <TableRow key={`${emp.phone}-detail`}>
+                    <TableCell colSpan={4} className="p-0">
+                      <EmployeeDetailPanel
+                        employee={selectedEmployee}
+                        onClose={() => setExpandedEmployee(null)}
+                      />
+                    </TableCell>
+                  </TableRow>
+                )}
+              </>
+            ))}
+          </DataTable>
+        </div>
+      )}
     </SectionShell>
+  );
+}
+
+function EmployeeDetailPanel({
+  employee,
+  onClose,
+}: {
+  employee: { phone: string; name?: string; applications: LocalApplication[] };
+  onClose: () => void;
+}) {
+  return (
+    <div className="bg-blue-50 border-t border-blue-100 p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <p className="font-semibold text-gray-900">
+            {employee.name || employee.phone}
+          </p>
+          <p className="text-xs text-gray-500">{employee.phone}</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-gray-600">
+            <span className="font-semibold">
+              {employee.applications.length}
+            </span>{" "}
+            total jobs applied
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            data-ocid="admin.employees.close_button"
+            className="text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-xs text-gray-500 border-b border-blue-200">
+              <th className="text-left pb-2 font-medium">Job Title</th>
+              <th className="text-left pb-2 font-medium">Company</th>
+              <th className="text-left pb-2 font-medium">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {employee.applications.map((app) => (
+              <tr
+                key={app.id}
+                className="border-b border-blue-100 last:border-0"
+              >
+                <td className="py-1.5 pr-3 font-medium text-gray-800">
+                  {app.jobTitle}
+                </td>
+                <td className="py-1.5 pr-3 text-gray-600">{app.company}</td>
+                <td className="py-1.5">
+                  <span
+                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                      app.status === "Approved"
+                        ? "bg-green-100 text-green-700"
+                        : app.status === "Rejected"
+                          ? "bg-red-100 text-red-700"
+                          : "bg-orange-100 text-orange-700"
+                    }`}
+                  >
+                    {app.status}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 
@@ -668,11 +888,12 @@ function AdminEmployers() {
   const { actor, isFetching } = useActor();
   const [employers, setEmployers] = useState<EmployerActivityRow[]>([]);
   const [blocked, setBlocked] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
   const [planSelections, setPlanSelections] = useState<Record<string, string>>(
     {},
   );
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [expandedEmployer, setExpandedEmployer] = useState<string | null>(null);
 
   useEffect(() => {
     if (!actor || isFetching) return;
@@ -755,6 +976,29 @@ function AdminEmployers() {
       return "bg-blue-100 text-blue-700 border border-blue-200";
     return "bg-gray-100 text-gray-600 border border-gray-200";
   };
+
+  // Local employers from jobs data
+  const localJobs = getAllJobsAdmin();
+  const localApps = getAllApplicationsAdmin();
+  const localEmployerMap = new Map<
+    string,
+    { phone: string; company: string; jobs: LocalJob[] }
+  >();
+  for (const job of localJobs) {
+    if (!localEmployerMap.has(job.employerPhone)) {
+      localEmployerMap.set(job.employerPhone, {
+        phone: job.employerPhone,
+        company: job.company,
+        jobs: [],
+      });
+    }
+    localEmployerMap.get(job.employerPhone)?.jobs.push(job);
+  }
+  const localEmployers = Array.from(localEmployerMap.values());
+
+  const selectedEmployerData = expandedEmployer
+    ? localEmployerMap.get(expandedEmployer)
+    : null;
 
   return (
     <SectionShell
@@ -870,67 +1114,164 @@ function AdminEmployers() {
           )}
         </DataTable>
       )}
-      {/* Local localStorage-based employers */}
-      {(() => {
-        const localJobs = getAllJobsAdmin();
-        const localEmployerMap = new Map<
-          string,
-          { phone: string; company: string; jobsPosted: number }
-        >();
-        for (const job of localJobs) {
-          if (!localEmployerMap.has(job.employerPhone)) {
-            localEmployerMap.set(job.employerPhone, {
-              phone: job.employerPhone,
-              company: job.company,
-              jobsPosted: 0,
-            });
-          }
-          const entry = localEmployerMap.get(job.employerPhone);
-          if (entry) entry.jobsPosted++;
-        }
-        const localEmployers = Array.from(localEmployerMap.values());
-        if (localEmployers.length === 0) return null;
-        return (
-          <div className="px-4 pb-4">
-            <p className="text-xs text-gray-400 mb-2 mt-3">
-              Platform Employers (local data)
-            </p>
-            <DataTable
-              headers={["Company", "Phone", "Jobs Posted", "Plan"]}
-              empty={false}
-            >
-              {localEmployers.map((emp, i) => (
-                <TableRow
-                  key={emp.phone}
-                  data-ocid={`admin.employers.row.${i + 100}`}
-                >
-                  <TableCell className="font-medium">
-                    {emp.company}
-                    <span className="ml-1 text-[10px] text-gray-400">
-                      (local)
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-gray-500">{emp.phone}</TableCell>
-                  <TableCell className="text-center font-semibold">
-                    {emp.jobsPosted}
-                  </TableCell>
-                  <TableCell>
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">
-                      Basic
-                    </span>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </DataTable>
-          </div>
-        );
-      })()}
+
+      {/* Local employers table with clickable detail */}
+      {localEmployers.length > 0 && (
+        <div className="px-4 pb-4">
+          <p className="text-xs text-gray-400 mb-2 mt-3">
+            Platform Employers (local data)
+          </p>
+          <DataTable
+            headers={["Company", "Plan", "Jobs Posted", ""]}
+            empty={false}
+          >
+            {localEmployers.map((emp, i) => {
+              const plan = getEmployerPlan(emp.phone);
+              return (
+                <>
+                  <TableRow
+                    key={emp.phone}
+                    data-ocid={`admin.employers.row.${i + 100}`}
+                    className="cursor-pointer hover:bg-gray-50 transition-colors"
+                    onClick={() =>
+                      setExpandedEmployer(
+                        expandedEmployer === emp.phone ? null : emp.phone,
+                      )
+                    }
+                  >
+                    <TableCell className="font-medium">
+                      {emp.company}
+                      <span className="ml-1 text-[10px] text-gray-400">
+                        (local)
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <span
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${planBadgeClass(plan)}`}
+                      >
+                        {plan}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-center font-semibold">
+                      {emp.jobs.length}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {expandedEmployer === emp.phone ? (
+                        <ChevronUp className="w-4 h-4 text-gray-400 inline" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4 text-gray-400 inline" />
+                      )}
+                    </TableCell>
+                  </TableRow>
+                  {expandedEmployer === emp.phone && selectedEmployerData && (
+                    <TableRow key={`${emp.phone}-detail`}>
+                      <TableCell colSpan={4} className="p-0">
+                        <EmployerDetailPanel
+                          employer={selectedEmployerData}
+                          plan={plan}
+                          allApps={localApps}
+                          onClose={() => setExpandedEmployer(null)}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </>
+              );
+            })}
+          </DataTable>
+        </div>
+      )}
     </SectionShell>
   );
 }
 
+function EmployerDetailPanel({
+  employer,
+  plan,
+  allApps,
+  onClose,
+}: {
+  employer: { phone: string; company: string; jobs: LocalJob[] };
+  plan: string;
+  allApps: LocalApplication[];
+  onClose: () => void;
+}) {
+  const planBadgeClass = (p: string) => {
+    if (p === "Gold")
+      return "bg-amber-100 text-amber-700 border border-amber-200";
+    if (p === "Silver")
+      return "bg-blue-100 text-blue-700 border border-blue-200";
+    return "bg-gray-100 text-gray-600 border border-gray-200";
+  };
+
+  return (
+    <div className="bg-amber-50 border-t border-amber-100 p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <p className="font-semibold text-gray-900">{employer.company}</p>
+          <span
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${planBadgeClass(plan)}`}
+          >
+            {plan}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          data-ocid="admin.employers.close_button"
+          className="text-gray-400 hover:text-gray-600 transition-colors"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-xs text-gray-500 border-b border-amber-200">
+              <th className="text-left pb-2 font-medium">Job Title</th>
+              <th className="text-left pb-2 font-medium">Status</th>
+              <th className="text-left pb-2 font-medium">Applications</th>
+            </tr>
+          </thead>
+          <tbody>
+            {employer.jobs.map((job) => {
+              const appCount = allApps.filter((a) => a.jobId === job.id).length;
+              return (
+                <tr
+                  key={job.id}
+                  className="border-b border-amber-100 last:border-0"
+                >
+                  <td className="py-1.5 pr-3 font-medium text-gray-800">
+                    {job.title}
+                  </td>
+                  <td className="py-1.5 pr-3">
+                    <span
+                      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                        job.status === "Approved"
+                          ? "bg-green-100 text-green-700"
+                          : job.status === "Rejected"
+                            ? "bg-red-100 text-red-700"
+                            : "bg-orange-100 text-orange-700"
+                      }`}
+                    >
+                      {job.status}
+                    </span>
+                  </td>
+                  <td className="py-1.5 font-semibold text-gray-700">
+                    {appCount}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ─── Jobs ────────────────────────────────────────────────────────────────────
-const JOB_CATEGORIES = [
+const JOB_CATEGORIES_FILTER = [
   "All",
   "Waiter",
   "Chef",
@@ -961,17 +1302,21 @@ function AdminJobs() {
     setJobs(getAllJobsAdmin());
   }, []);
 
-  const filtered = jobs.filter((job) => {
-    const matchSearch =
-      !search ||
-      job.title.toLowerCase().includes(search.toLowerCase()) ||
-      job.company.toLowerCase().includes(search.toLowerCase());
-    const matchCategory =
-      categoryFilter === "All" || job.category === categoryFilter;
-    const matchLocation =
-      locationFilter === "All" || job.location === locationFilter;
-    return matchSearch && matchCategory && matchLocation;
-  });
+  // Sort by company name alphabetically, then filter
+  const filtered = jobs
+    .slice()
+    .sort((a, b) => a.company.localeCompare(b.company))
+    .filter((job) => {
+      const matchSearch =
+        !search ||
+        job.title.toLowerCase().includes(search.toLowerCase()) ||
+        job.company.toLowerCase().includes(search.toLowerCase());
+      const matchCategory =
+        categoryFilter === "All" || job.category === categoryFilter;
+      const matchLocation =
+        locationFilter === "All" || job.location === locationFilter;
+      return matchSearch && matchCategory && matchLocation;
+    });
 
   const handleApprove = (jobId: string) => {
     adminApproveJob(jobId);
@@ -1020,7 +1365,7 @@ function AdminJobs() {
             data-ocid="admin.jobs.select"
             className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
           >
-            {JOB_CATEGORIES.map((c) => (
+            {JOB_CATEGORIES_FILTER.map((c) => (
               <option key={c} value={c}>
                 {c === "All" ? "All Categories" : c}
               </option>
@@ -1041,14 +1386,7 @@ function AdminJobs() {
         </div>
       </div>
       <DataTable
-        headers={[
-          "Company",
-          "Job Title",
-          "Category",
-          "Location",
-          "Status",
-          "Actions",
-        ]}
+        headers={["Company Name", "Job Title", "Status", "Actions"]}
         empty={filtered.length === 0}
       >
         {filtered.map((job, i) => (
@@ -1056,10 +1394,10 @@ function AdminJobs() {
             key={job.id.toString()}
             data-ocid={`admin.jobs.row.${i + 1}`}
           >
-            <TableCell className="font-medium">{job.company}</TableCell>
-            <TableCell>{job.title}</TableCell>
-            <TableCell className="text-gray-500">{job.category}</TableCell>
-            <TableCell className="text-gray-500">{job.location}</TableCell>
+            <TableCell>
+              <span className="font-bold text-gray-900">{job.company}</span>
+            </TableCell>
+            <TableCell className="text-gray-700">{job.title}</TableCell>
             <TableCell>
               {job.status === "Approved" && (
                 <Badge variant="default">Approved</Badge>
@@ -1095,16 +1433,14 @@ function AdminJobs() {
                     </Button>
                   </>
                 )}
-                {job.status !== "Pending" && (
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => handleDelete(job.id)}
-                    data-ocid={`admin.jobs.delete_button.${i + 1}`}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </Button>
-                )}
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => handleDelete(job.id)}
+                  data-ocid={`admin.jobs.delete_button.${i + 1}`}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
               </div>
             </TableCell>
           </TableRow>
@@ -1117,10 +1453,26 @@ function AdminJobs() {
 // ─── Applications ─────────────────────────────────────────────────────────────
 function AdminApplications() {
   const [applications, setApplications] = useState<LocalApplication[]>([]);
+  const [jobs, setJobs] = useState<LocalJob[]>([]);
+  const [categoryFilter, setCategoryFilter] = useState("All");
 
   useEffect(() => {
     setApplications(getAllApplicationsAdmin());
+    setJobs(getAllJobsAdmin());
   }, []);
+
+  // Build a map of jobId -> category for quick lookup
+  const jobCategoryMap = new Map<string, string>();
+  for (const job of jobs) {
+    jobCategoryMap.set(job.id, job.category);
+  }
+
+  const filtered =
+    categoryFilter === "All"
+      ? applications
+      : applications.filter(
+          (app) => jobCategoryMap.get(app.jobId) === categoryFilter,
+        );
 
   const handleApprove = (appId: string) => {
     adminApproveApplication(appId);
@@ -1158,15 +1510,33 @@ function AdminApplications() {
       title="Applications"
       description="All job applications across the platform"
     >
-      {applications.length === 0 && (
+      {/* Category filter */}
+      <div className="px-4 pt-4 pb-2">
+        <select
+          value={categoryFilter}
+          onChange={(e) => setCategoryFilter(e.target.value)}
+          data-ocid="admin.applications.select"
+          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+        >
+          <option value="All">All Categories</option>
+          {JOB_CATEGORIES.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {filtered.length === 0 && (
         <div
           className="p-6 text-center text-gray-400 text-sm"
           data-ocid="admin.applications.empty_state"
         >
-          No applications yet
+          No applications
+          {categoryFilter !== "All" ? ` in ${categoryFilter}` : " yet"}
         </div>
       )}
-      {applications.length > 0 && (
+      {filtered.length > 0 && (
         <DataTable
           headers={[
             "Candidate Name",
@@ -1176,9 +1546,9 @@ function AdminApplications() {
             "Status",
             "Actions",
           ]}
-          empty={applications.length === 0}
+          empty={filtered.length === 0}
         >
-          {applications.map((app, i) => (
+          {filtered.map((app, i) => (
             <TableRow
               key={app.id}
               data-ocid={`admin.applications.row.${i + 1}`}
@@ -1220,6 +1590,316 @@ function AdminApplications() {
           ))}
         </DataTable>
       )}
+    </SectionShell>
+  );
+}
+
+// ─── Reports ─────────────────────────────────────────────────────────────────
+function AdminReports() {
+  const [exporting, setExporting] = useState(false);
+
+  const handleExportExcel = () => {
+    setExporting(true);
+    try {
+      const wb = XLSX.utils.book_new();
+
+      // Sheet 1: Employees
+      const allEmployeeProfiles = getAllEmployeeProfiles();
+      const allApps = getAllApplicationsAdmin();
+
+      const employeeRows = allEmployeeProfiles.map((ep) => {
+        const myApps = allApps.filter((a) => a.employeePhone === ep.phone);
+        return {
+          Name: ep.name || "—",
+          Phone: ep.phone,
+          Email: ep.email,
+          "Jobs Applied": myApps.length,
+          "Application Status":
+            myApps.map((a) => `${a.jobTitle} (${a.status})`).join("; ") || "—",
+        };
+      });
+
+      // Fallback: if no profiles saved yet, build from applications
+      if (employeeRows.length === 0) {
+        const phoneSeen = new Set<string>();
+        for (const a of allApps) {
+          if (!phoneSeen.has(a.employeePhone)) {
+            phoneSeen.add(a.employeePhone);
+            const myApps = allApps.filter(
+              (x) => x.employeePhone === a.employeePhone,
+            );
+            employeeRows.push({
+              Name: a.employeeName || "—",
+              Phone: a.employeePhone,
+              Email: a.employeeEmail || "—",
+              "Jobs Applied": myApps.length,
+              "Application Status":
+                myApps.map((x) => `${x.jobTitle} (${x.status})`).join("; ") ||
+                "—",
+            });
+          }
+        }
+      }
+
+      const wsEmployees = XLSX.utils.json_to_sheet(
+        employeeRows.length > 0
+          ? employeeRows
+          : [
+              {
+                Name: "No data",
+                Phone: "",
+                Email: "",
+                "Jobs Applied": 0,
+                "Application Status": "",
+              },
+            ],
+      );
+      XLSX.utils.book_append_sheet(wb, wsEmployees, "Employees");
+
+      // Sheet 2: Employers
+      const allEmployerProfiles = getAllEmployerProfilesForExport();
+      const allJobs = getAllJobsAdmin();
+
+      const employerRows = allEmployerProfiles.map((ep) => {
+        const myJobs = allJobs.filter((j) => j.employerPhone === ep.phone);
+        return {
+          "Company Name": ep.companyName || "—",
+          Phone: ep.phone,
+          Plan: ep.plan || "Basic",
+          "Jobs Posted": myJobs.length,
+          "Job Titles": myJobs.map((j) => j.title).join("; ") || "—",
+        };
+      });
+
+      // Fallback: build from jobs
+      if (employerRows.length === 0) {
+        const phoneSeen = new Set<string>();
+        for (const j of allJobs) {
+          if (!phoneSeen.has(j.employerPhone)) {
+            phoneSeen.add(j.employerPhone);
+            const myJobs = allJobs.filter(
+              (x) => x.employerPhone === j.employerPhone,
+            );
+            const plan = (() => {
+              try {
+                const raw = localStorage.getItem(
+                  `qr_erp_plan_${j.employerPhone}`,
+                );
+                if (raw) {
+                  const val = raw.trim().replace(/"/g, "");
+                  if (val === "Silver" || val === "Gold") return val;
+                }
+              } catch {
+                /* ignore */
+              }
+              return "Basic";
+            })();
+            employerRows.push({
+              "Company Name": j.company || "—",
+              Phone: j.employerPhone,
+              Plan: plan,
+              "Jobs Posted": myJobs.length,
+              "Job Titles": myJobs.map((x) => x.title).join("; ") || "—",
+            });
+          }
+        }
+      }
+
+      const wsEmployers = XLSX.utils.json_to_sheet(
+        employerRows.length > 0
+          ? employerRows
+          : [
+              {
+                "Company Name": "No data",
+                Phone: "",
+                Plan: "",
+                "Jobs Posted": 0,
+                "Job Titles": "",
+              },
+            ],
+      );
+      XLSX.utils.book_append_sheet(wb, wsEmployers, "Employers");
+
+      // Sheet 3: Jobs
+      const jobRows = allJobs.map((j) => ({
+        "Job Title": j.title,
+        "Company Name": j.company,
+        Location: j.location,
+        Category: j.category,
+        Salary: j.salary,
+        Status: j.status,
+        "Posted At": new Date(j.postedAt).toLocaleDateString("en-IN"),
+      }));
+
+      const wsJobs = XLSX.utils.json_to_sheet(
+        jobRows.length > 0
+          ? jobRows
+          : [
+              {
+                "Job Title": "No data",
+                "Company Name": "",
+                Location: "",
+                Category: "",
+                Salary: "",
+                Status: "",
+                "Posted At": "",
+              },
+            ],
+      );
+      XLSX.utils.book_append_sheet(wb, wsJobs, "Jobs");
+
+      // Sheet 4: Applications
+      const appRows = allApps.map((a) => ({
+        "Candidate Name": a.employeeName || "—",
+        Phone: a.employeePhone,
+        Email: a.employeeEmail || "—",
+        "Job Title": a.jobTitle,
+        "Company Name": a.company,
+        Location: a.location,
+        Experience: a.experience || "—",
+        Status: a.status,
+        "Candidate Status": a.candidateStatus || "—",
+        "Applied At": new Date(a.appliedAt).toLocaleDateString("en-IN"),
+      }));
+
+      const wsApps = XLSX.utils.json_to_sheet(
+        appRows.length > 0
+          ? appRows
+          : [
+              {
+                "Candidate Name": "No data",
+                Phone: "",
+                Email: "",
+                "Job Title": "",
+                "Company Name": "",
+                Location: "",
+                Experience: "",
+                Status: "",
+                "Candidate Status": "",
+                "Applied At": "",
+              },
+            ],
+      );
+      XLSX.utils.book_append_sheet(wb, wsApps, "Applications");
+
+      // Download
+      const dateStr = new Date().toISOString().slice(0, 10);
+      XLSX.writeFile(wb, `QuickRozgar_Report_${dateStr}.xlsx`);
+      toast.success("Report download ho rahi hai! ✅");
+    } catch (err) {
+      console.error(err);
+      toast.error("Export failed. Please try again.");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const allJobs = getAllJobsAdmin();
+  const allApps = getAllApplicationsAdmin();
+  const allEmpProfiles = getAllEmployeeProfiles();
+  const allErpProfiles = getAllEmployerProfilesForExport();
+
+  // Compute stats
+  const totalEmployees =
+    allEmpProfiles.length || new Set(allApps.map((a) => a.employeePhone)).size;
+  const totalEmployers =
+    allErpProfiles.length || new Set(allJobs.map((j) => j.employerPhone)).size;
+  const totalJobs = allJobs.length;
+  const totalApps = allApps.length;
+
+  return (
+    <SectionShell
+      title="Reports"
+      description="Export complete platform data to Excel"
+    >
+      <div className="p-6 space-y-6">
+        {/* Summary Cards */}
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {[
+            {
+              label: "Employees",
+              value: totalEmployees,
+              color: "bg-blue-50 text-blue-700",
+            },
+            {
+              label: "Employers",
+              value: totalEmployers,
+              color: "bg-emerald-50 text-emerald-700",
+            },
+            {
+              label: "Total Jobs",
+              value: totalJobs,
+              color: "bg-violet-50 text-violet-700",
+            },
+            {
+              label: "Applications",
+              value: totalApps,
+              color: "bg-amber-50 text-amber-700",
+            },
+          ].map((card) => (
+            <div key={card.label} className={`rounded-xl p-4 ${card.color}`}>
+              <p className="text-2xl font-bold">{card.value}</p>
+              <p className="text-xs font-medium mt-0.5">{card.label}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Export Section */}
+        <div className="border border-gray-200 rounded-xl p-5 space-y-4">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center flex-shrink-0">
+              <FileSpreadsheet className="w-5 h-5 text-green-600" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900">
+                Full Platform Export
+              </h3>
+              <p className="text-sm text-gray-500 mt-0.5">
+                Downloads a .xlsx file with 4 sheets: Employees, Employers,
+                Jobs, Applications. All data is real and fetched directly from
+                the database.
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-600 space-y-1">
+            <p className="font-medium text-gray-700 mb-1">What is included:</p>
+            <p>
+              📋 <strong>Employees:</strong> Name, Phone, Email, Jobs Applied,
+              Application Status
+            </p>
+            <p>
+              🏢 <strong>Employers:</strong> Company Name, Phone, Plan, Jobs
+              Posted
+            </p>
+            <p>
+              💼 <strong>Jobs:</strong> Title, Company, Location, Category,
+              Status
+            </p>
+            <p>
+              📝 <strong>Applications:</strong> Candidate Name, Job Title,
+              Status, Candidate Status
+            </p>
+          </div>
+
+          <Button
+            onClick={handleExportExcel}
+            disabled={exporting}
+            className="w-full h-11 gap-2 font-semibold bg-green-600 hover:bg-green-700 text-white"
+            data-ocid="admin.export_excel_button"
+          >
+            {exporting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" /> Exporting...
+              </>
+            ) : (
+              <>
+                <Download className="w-4 h-4" /> Export to Excel (.xlsx)
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
     </SectionShell>
   );
 }

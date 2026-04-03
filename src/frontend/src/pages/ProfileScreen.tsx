@@ -16,6 +16,7 @@ import {
   ChevronRight,
   HelpCircle,
   LogOut,
+  Pencil,
   Settings,
   User,
 } from "lucide-react";
@@ -25,7 +26,10 @@ import { toast } from "sonner";
 import type { TabName } from "../components/BottomNav";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
 import { useGetCallerUserProfile } from "../hooks/useQueries";
-import { getEmployeeSession } from "../utils/employeeSession";
+import {
+  getEmployeeSession,
+  saveEmployeeSession,
+} from "../utils/employeeSession";
 import { getMyApplications as getLocalApplications } from "../utils/localDb";
 
 interface ProfileScreenProps {
@@ -200,6 +204,7 @@ export default function ProfileScreen({
   const _ = setApplications; // suppress unused warning
   const qc = useQueryClient();
   const isAuthenticated = !!identity;
+  const [_sessionRefresh, setSessionRefresh] = useState(0);
   const employeeSession = getEmployeeSession();
 
   const [notifOpen, setNotifOpen] = useState(false);
@@ -211,11 +216,17 @@ export default function ProfileScreen({
     new Set(),
   );
 
+  // Name editing state
+  const [editingName, setEditingName] = useState(false);
+  const [editNameValue, setEditNameValue] = useState("");
+
   const [settingsForm, setSettingsForm] = useState({
-    name: "",
+    name: employeeSession?.name ?? "",
     phone: "",
     city: "",
   });
+
+  // sessionRefresh drives re-reads of the session (used in displayName computation)
 
   // Map backend applications to display format
   const displayApplications = (() => {
@@ -258,9 +269,30 @@ export default function ProfileScreen({
   };
 
   const handleSaveSettings = () => {
+    if (employeeSession) {
+      saveEmployeeSession(
+        employeeSession.phone,
+        employeeSession.email,
+        settingsForm.name,
+      );
+      setSessionRefresh((n) => n + 1);
+    }
     localStorage.setItem("userSettings", JSON.stringify(settingsForm));
     toast.success("Settings save ho gayi! ✅");
     setSettingsOpen(false);
+  };
+
+  const handleSaveName = () => {
+    if (!employeeSession) return;
+    const trimmed = editNameValue.trim();
+    if (!trimmed) {
+      toast.error("Naam khali nahi ho sakta");
+      return;
+    }
+    saveEmployeeSession(employeeSession.phone, employeeSession.email, trimmed);
+    setSessionRefresh((n) => n + 1);
+    setEditingName(false);
+    toast.success("Naam update ho gaya! ✅");
   };
 
   const handleRemoveSaved = (id: string) => {
@@ -329,6 +361,10 @@ export default function ProfileScreen({
 
   // Employee session profile view
   if (employeeSession && !isAuthenticated) {
+    // Current name from session (re-reads on sessionRefresh)
+    const currentSession = getEmployeeSession();
+    const displayName = currentSession?.name || "Employee";
+
     return (
       <div className="flex flex-col min-h-screen">
         {/* Header */}
@@ -337,10 +373,54 @@ export default function ProfileScreen({
             <div className="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center text-3xl">
               👤
             </div>
-            <div>
-              <p className="text-primary-foreground font-bold text-lg">
-                Employee
-              </p>
+            <div className="flex-1">
+              {editingName ? (
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={editNameValue}
+                    onChange={(e) => setEditNameValue(e.target.value)}
+                    className="h-8 rounded-xl bg-white/20 border-white/30 text-white placeholder:text-white/50 text-sm"
+                    placeholder="Naam likho"
+                    autoFocus
+                    data-ocid="profile.name_edit.input"
+                  />
+                  <Button
+                    size="sm"
+                    className="h-8 rounded-xl bg-white text-primary font-bold text-xs px-3"
+                    onClick={handleSaveName}
+                    data-ocid="profile.name_edit.save_button"
+                  >
+                    Save
+                  </Button>
+                  <button
+                    type="button"
+                    className="text-white/70 text-xs"
+                    onClick={() => setEditingName(false)}
+                    data-ocid="profile.name_edit.cancel_button"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <p className="text-primary-foreground font-bold text-lg">
+                    {displayName}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditNameValue(
+                        displayName === "Employee" ? "" : displayName,
+                      );
+                      setEditingName(true);
+                    }}
+                    className="text-white/70 hover:text-white transition-colors"
+                    data-ocid="profile.name_edit_button"
+                  >
+                    <Pencil size={14} />
+                  </button>
+                </div>
+              )}
               <p className="text-primary-foreground/70 text-xs">
                 📱 {employeeSession.phone}
               </p>
@@ -416,7 +496,12 @@ export default function ProfileScreen({
                 icon: Settings,
                 label: "Settings",
                 sublabel: "Account settings",
-                action: () => setSettingsOpen(true),
+                action: () => {
+                  const s = getEmployeeSession();
+                  if (s?.name)
+                    setSettingsForm((f) => ({ ...f, name: s.name ?? "" }));
+                  setSettingsOpen(true);
+                },
                 ocid: "profile.settings_button",
               },
             ].map((item) => {

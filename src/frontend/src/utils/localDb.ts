@@ -28,8 +28,22 @@ export interface LocalApplication {
   employeePhone: string;
   employeeName?: string;
   employeeEmail?: string;
+  experience?: string;
   appliedAt: number;
   status: "Pending" | "Approved" | "Rejected";
+  candidateStatus?: string; // Employer-managed: Under Review | Selected | Rejected
+}
+
+export interface EmployerProfileData {
+  companyName: string;
+  updatedAt: number;
+}
+
+export interface EmployeeProfileData {
+  name: string;
+  phone: string;
+  email: string;
+  updatedAt: number;
 }
 
 function loadJobs(): LocalJob[] {
@@ -56,6 +70,99 @@ function loadApplications(): LocalApplication[] {
 
 function saveApplications(apps: LocalApplication[]): void {
   localStorage.setItem(APPLICATIONS_KEY, JSON.stringify(apps));
+}
+
+/** Save employer profile data (company name etc) keyed by employer phone. */
+export function saveEmployerProfileData(
+  phone: string,
+  data: Omit<EmployerProfileData, "updatedAt">,
+): void {
+  const key = `qr_erp_profile_${phone}`;
+  const record: EmployerProfileData = { ...data, updatedAt: Date.now() };
+  localStorage.setItem(key, JSON.stringify(record));
+}
+
+/** Get employer profile data by phone. Returns null if not found. */
+export function getEmployerProfileData(
+  phone: string,
+): EmployerProfileData | null {
+  try {
+    const key = `qr_erp_profile_${phone}`;
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as EmployerProfileData) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Save employee profile data (name, phone, email) permanently keyed by phone. */
+export function saveEmployeeProfile(
+  phone: string,
+  name: string,
+  email: string,
+): void {
+  const key = `qr_emp_profile_${phone}`;
+  const record: EmployeeProfileData = {
+    name,
+    phone,
+    email,
+    updatedAt: Date.now(),
+  };
+  localStorage.setItem(key, JSON.stringify(record));
+}
+
+/** Get employee profile data by phone. Returns null if not found. */
+export function getEmployeeProfile(phone: string): EmployeeProfileData | null {
+  try {
+    const key = `qr_emp_profile_${phone}`;
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as EmployeeProfileData) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Get all employee profiles (for admin export). */
+export function getAllEmployeeProfiles(): EmployeeProfileData[] {
+  const profiles: EmployeeProfileData[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key?.startsWith("qr_emp_profile_")) {
+      try {
+        const raw = localStorage.getItem(key);
+        if (raw) profiles.push(JSON.parse(raw) as EmployeeProfileData);
+      } catch {
+        // ignore
+      }
+    }
+  }
+  return profiles;
+}
+
+/** Get all employer profiles (for admin export). */
+export function getAllEmployerProfilesForExport(): Array<
+  EmployerProfileData & { phone: string; plan: string }
+> {
+  const results: Array<EmployerProfileData & { phone: string; plan: string }> =
+    [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key?.startsWith("qr_erp_profile_")) {
+      try {
+        const phone = key.replace("qr_erp_profile_", "");
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const data = JSON.parse(raw) as EmployerProfileData;
+          const planRaw = localStorage.getItem(`qr_erp_plan_${phone}`);
+          const plan = planRaw ? planRaw.trim().replace(/"/g, "") : "Basic";
+          results.push({ ...data, phone, plan });
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }
+  return results;
 }
 
 /** Post a new job. Returns the new job. Status starts as Pending. */
@@ -119,6 +226,7 @@ export function applyToJob(
   employeePhone: string,
   employeeName?: string,
   employeeEmail?: string,
+  experience?: string,
 ): { success: boolean; alreadyApplied: boolean } {
   const apps = loadApplications();
   const already = apps.some(
@@ -139,8 +247,10 @@ export function applyToJob(
     employeePhone,
     employeeName,
     employeeEmail,
+    experience,
     appliedAt: Date.now(),
     status: "Pending",
+    candidateStatus: "Under Review",
   };
   apps.push(app);
   saveApplications(apps);
@@ -176,6 +286,17 @@ export function adminApproveApplication(appId: string): void {
 export function adminRejectApplication(appId: string): void {
   const apps = loadApplications().map((a) =>
     a.id === appId ? { ...a, status: "Rejected" as const } : a,
+  );
+  saveApplications(apps);
+}
+
+/** Employer: Update candidate status for an application. */
+export function updateCandidateStatus(
+  appId: string,
+  candidateStatus: string,
+): void {
+  const apps = loadApplications().map((a) =>
+    a.id === appId ? { ...a, candidateStatus } : a,
   );
   saveApplications(apps);
 }

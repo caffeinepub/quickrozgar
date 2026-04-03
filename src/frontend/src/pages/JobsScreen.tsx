@@ -211,37 +211,58 @@ export default function JobsScreen({
   }
 
   function handleApplyClick(job: DisplayJob) {
-    if (job.localId !== undefined) {
-      // Local DB job — apply directly without form
+    // Always check session first
+    const session = getEmployeeSession();
+    if (!session) {
+      toast.error("Pehle login karo");
+      return;
+    }
+
+    // Profile name validation
+    if (!session.name || session.name.trim() === "") {
+      toast.error("Please update your profile name first");
+      return;
+    }
+
+    // Open popup for ALL jobs, pre-filling name and phone
+    setApplyJob(job);
+    setForm({
+      name: session.name || "",
+      phone: session.phone || "",
+      experience: "",
+    });
+    setSubmitted(false);
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+
+    if (applyJob?.localId !== undefined) {
       const session = getEmployeeSession();
       if (!session) {
         toast.error("Pehle login karo");
         return;
       }
       const result = localApplyToJob(
-        job.localId,
-        session.phone,
-        session.name,
+        applyJob.localId,
+        form.phone,
+        form.name,
         session.email,
+        form.experience,
       );
       if (result.alreadyApplied) {
         toast.error("Aap pehle se apply kar chuke hain!");
-      } else if (result.success) {
-        toast.success("Application Bhej Di! 🎉");
+        return;
+      }
+      if (result.success) {
+        setSubmitted(true);
       } else {
         toast.error("Apply nahi hua. Dobara try karo.");
       }
-      return;
+    } else {
+      // Sample data job — just show success
+      setSubmitted(true);
     }
-    // Sample data job — show form dialog
-    setApplyJob(job);
-    setForm({ name: "", phone: "", experience: "" });
-    setSubmitted(false);
-  }
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setSubmitted(true);
   }
 
   const pageVariants = {
@@ -444,7 +465,7 @@ export default function JobsScreen({
         )}
       </AnimatePresence>
 
-      {/* Apply Dialog — only for sample/fallback jobs */}
+      {/* Apply Dialog — for all jobs */}
       <Dialog
         open={!!applyJob}
         onOpenChange={(open) => !open && setApplyJob(null)}

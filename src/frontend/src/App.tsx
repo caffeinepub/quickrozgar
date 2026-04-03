@@ -1,6 +1,9 @@
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Toaster } from "@/components/ui/sonner";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import BottomNav, { type TabName } from "./components/BottomNav";
 import { useInternetIdentity } from "./hooks/useInternetIdentity";
 import AbroadScreen from "./pages/AbroadScreen";
@@ -16,11 +19,13 @@ import SplashScreen from "./pages/SplashScreen";
 import {
   clearEmployeeSession,
   getEmployeeSession,
+  saveEmployeeSession,
 } from "./utils/employeeSession";
 import {
   clearEmployerSession,
   getEmployerSession,
 } from "./utils/employerSession";
+import { getEmployeeProfile, saveEmployeeProfile } from "./utils/localDb";
 
 type Screen =
   | { id: "splash" }
@@ -29,6 +34,67 @@ type Screen =
   | { id: "profile-setup" }
   | { id: "employer" }
   | { id: "location-select"; category: string; categoryEmoji: string };
+
+// One-time name prompt modal
+function NamePromptModal({
+  phone,
+  email,
+  onSave,
+}: { phone: string; email: string; onSave: (name: string) => void }) {
+  const [name, setName] = useState("");
+
+  const handleSubmit = () => {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      toast.error("Naam likhna zaroori hai");
+      return;
+    }
+    onSave(trimmed);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-6">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+        <div className="text-center mb-5">
+          <div className="text-4xl mb-3">👋</div>
+          <h2 className="text-xl font-bold text-gray-900">Apna Naam Batao</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            Yeh sirf ek baar poochha jayega. Iske baad app aapka naam yaad
+            rakhega.
+          </p>
+        </div>
+        <div className="space-y-4">
+          <div>
+            <label
+              htmlFor="name-prompt-input"
+              className="block text-sm font-medium text-gray-700 mb-1"
+            >
+              Aapka Poora Naam
+            </label>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              id="name-prompt-input"
+              placeholder="e.g. Ramesh Kumar"
+              className="h-12 text-base rounded-xl"
+              onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+              autoFocus
+            />
+          </div>
+          <Button
+            onClick={handleSubmit}
+            className="w-full h-12 rounded-xl text-base font-bold"
+          >
+            Save Karo ✅
+          </Button>
+        </div>
+        <p className="text-xs text-center text-gray-400 mt-3">
+          {phone} • {email}
+        </p>
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
   const isAdminHash =
@@ -44,8 +110,23 @@ export default function App() {
   };
 
   const [screen, setScreen] = useState<Screen>(initialScreen);
+  // Controls whether the one-time name prompt is showing
+  const [showNamePrompt, setShowNamePrompt] = useState(false);
 
   const { clear } = useInternetIdentity();
+
+  // After employee session is active, check if they have a name in profile
+  useEffect(() => {
+    if (screen.id === "main") {
+      const sess = getEmployeeSession();
+      if (!sess) return;
+      const profile = getEmployeeProfile(sess.phone);
+      // Show prompt if no name saved in profile yet
+      if (!profile?.name) {
+        setShowNamePrompt(true);
+      }
+    }
+  }, [screen.id]);
 
   // Protect employer dashboard: if no session, redirect to splash
   useEffect(() => {
@@ -70,13 +151,28 @@ export default function App() {
     clearEmployeeSession();
     clearEmployerSession();
     await clear();
+    setShowNamePrompt(false);
     setScreen({ id: "splash" });
+  };
+
+  const handleNameSave = (name: string) => {
+    const sess = getEmployeeSession();
+    if (!sess) return;
+    // Save to permanent profile store
+    saveEmployeeProfile(sess.phone, name, sess.email);
+    // Also update session so name is immediately available in ProfileScreen
+    saveEmployeeSession(sess.phone, sess.email, name);
+    setShowNamePrompt(false);
+    toast.success(`Swagat hai, ${name}! 🎉`);
   };
 
   const activeTab = screen.id === "main" ? screen.tab : "home";
   const showBottomNav = screen.id === "main";
 
   if (isAdminHash) return <AdminApp />;
+
+  // Get current employee session for name prompt
+  const empSess = screen.id === "main" ? getEmployeeSession() : null;
 
   return (
     <div className="min-h-screen bg-muted">
@@ -197,6 +293,15 @@ export default function App() {
 
         <Toaster position="top-center" richColors />
       </div>
+
+      {/* One-time name prompt after employee login */}
+      {showNamePrompt && empSess && (
+        <NamePromptModal
+          phone={empSess.phone}
+          email={empSess.email}
+          onSave={handleNameSave}
+        />
+      )}
 
       {/* Footer */}
       {screen.id === "main" && screen.tab === "home" && (

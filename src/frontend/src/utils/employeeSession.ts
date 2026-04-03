@@ -1,3 +1,5 @@
+import { saveEmployeeProfile } from "./localDb";
+
 const SESSION_KEY = "qr_employee_session";
 
 export interface EmployeeSession {
@@ -21,6 +23,8 @@ export function saveEmployeeSession(
     createdAt: Date.now(),
   };
   localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  // Also persist to permanent profile store so name/phone/email survive session resets
+  saveEmployeeProfile(phone, name ?? "", email);
 }
 
 export function getEmployeeSession(): EmployeeSession | null {

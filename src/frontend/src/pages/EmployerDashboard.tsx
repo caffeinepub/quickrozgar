@@ -27,6 +27,7 @@ import {
   Plus,
   Star,
   Trophy,
+  User,
   Users,
   X,
 } from "lucide-react";
@@ -34,12 +35,17 @@ import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { getEmployerSession } from "../utils/employerSession";
-import { getApplicationsForEmployer } from "../utils/localDb";
+import {
+  getApplicationsForEmployer,
+  getEmployerProfileData,
+  saveEmployerProfileData,
+} from "../utils/localDb";
 import {
   getEmployerJobs,
   getAllJobs as getLocalAllJobs,
   deleteJob as localDeleteJob,
   postJob,
+  updateCandidateStatus,
 } from "../utils/localDb";
 
 interface EmployerDashboardProps {
@@ -52,7 +58,8 @@ type View =
   | "post-job"
   | "manage-jobs"
   | "applications"
-  | "plans";
+  | "plans"
+  | "profile";
 
 type LoginMethod = "otp" | "email";
 type AuthTab = "login" | "signup";
@@ -152,6 +159,9 @@ function StatusBadge({ status }: { status: CandidateStatus }) {
     </span>
   );
 }
+
+// Suppress unused warning
+const _StatusBadge = StatusBadge;
 
 // ─── Login / Signup ───────────────────────────────────────────────────────────
 function LoginView({ onEnter }: { onEnter: () => void }) {
@@ -571,6 +581,81 @@ function DashboardView({
   );
 }
 
+// ─── Employer Profile View ─────────────────────────────────────────────────────
+function ProfileView({ onSaved }: { onSaved: () => void }) {
+  const session = getEmployerSession();
+  const [companyName, setCompanyName] = useState(() => {
+    if (!session?.phone) return "";
+    return getEmployerProfileData(session.phone)?.companyName ?? "";
+  });
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = () => {
+    if (!companyName.trim()) {
+      toast.error("Company Name is required");
+      return;
+    }
+    if (!session?.phone) {
+      toast.error("Session not found. Please re-login.");
+      return;
+    }
+    setSaving(true);
+    saveEmployerProfileData(session.phone, { companyName: companyName.trim() });
+    toast.success("Profile saved! ✅");
+    setSaving(false);
+    onSaved();
+  };
+
+  return (
+    <motion.div
+      key="profile"
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="space-y-5"
+    >
+      <div className="bg-white rounded-2xl border border-gray-100 p-5 space-y-4">
+        <div className="flex items-center gap-3 mb-2">
+          <div className="w-12 h-12 rounded-xl bg-[oklch(28%_0.1_261)]/10 flex items-center justify-center">
+            <User size={22} className="text-[oklch(28%_0.1_261)]" />
+          </div>
+          <div>
+            <p className="font-bold text-gray-800">Company Profile</p>
+            <p className="text-xs text-gray-500">
+              Manage your business details
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-xs font-semibold text-gray-700">
+            Company Name *
+          </Label>
+          <Input
+            placeholder="e.g. Quick Rozgar Pvt. Ltd."
+            value={companyName}
+            onChange={(e) => setCompanyName(e.target.value)}
+            className="rounded-xl"
+            data-ocid="employer.profile.company_name_input"
+          />
+          <p className="text-[11px] text-gray-400">
+            ℹ️ This company name will be shown in all your job postings
+          </p>
+        </div>
+
+        <Button
+          className="w-full rounded-xl font-bold bg-[oklch(30%_0.1_261)] hover:bg-[oklch(25%_0.1_261)] text-white"
+          onClick={handleSave}
+          disabled={saving}
+          data-ocid="employer.profile.save_button"
+        >
+          {saving ? <Loader2 size={16} className="mr-2 animate-spin" /> : null}
+          Save Profile
+        </Button>
+      </div>
+    </motion.div>
+  );
+}
+
 // ─── Post Job (3-step) ─────────────────────────────────────────────────────────
 function PostJobView({ onDone }: { onDone: () => void }) {
   const [step, setStep] = useState(1);
@@ -584,7 +669,11 @@ function PostJobView({ onDone }: { onDone: () => void }) {
   });
   const handlePost = () => {
     const erpSession = getEmployerSession();
+    const profileData = erpSession?.phone
+      ? getEmployerProfileData(erpSession.phone)
+      : null;
     const companyName =
+      profileData?.companyName ||
       erpSession?.companyName ||
       erpSession?.email?.split("@")[0] ||
       "My Company";
@@ -975,12 +1064,33 @@ function ManageJobsView() {
   );
 }
 
+// Candidate status badge helper
+function CandidateStatusBadge({ status }: { status: string }) {
+  let cls = "bg-yellow-100 text-yellow-700";
+  if (status === "Selected") cls = "bg-green-100 text-green-700";
+  if (status === "Rejected") cls = "bg-red-100 text-red-700";
+  return (
+    <span
+      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${cls}`}
+    >
+      {status}
+    </span>
+  );
+}
+
 // ─── Applications ──────────────────────────────────────────────────────────────
 function ApplicationsView() {
   const session = getEmployerSession();
   const [candidates] = useState(() =>
     session ? getApplicationsForEmployer(session.phone) : [],
   );
+  const [statusMap, setStatusMap] = useState<Record<string, string>>(() => {
+    const map: Record<string, string> = {};
+    for (const c of candidates) {
+      map[c.id] = c.candidateStatus || "Under Review";
+    }
+    return map;
+  });
 
   return (
     <motion.div
@@ -1015,15 +1125,22 @@ function ApplicationsView() {
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <p className="font-bold text-sm text-gray-800">
                       {candidate.employeeName || "Applicant"}
                     </p>
-                    <StatusBadge status="Viewed" />
+                    <CandidateStatusBadge
+                      status={statusMap[candidate.id] || "Under Review"}
+                    />
                   </div>
                   <p className="text-xs text-gray-500 mt-0.5">
                     📞 {candidate.employeePhone}
                   </p>
+                  {candidate.experience && (
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      💼 Experience: {candidate.experience}
+                    </p>
+                  )}
                   <div className="flex items-center gap-2 mt-1.5">
                     <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-medium">
                       {candidate.jobTitle}
@@ -1034,6 +1151,48 @@ function ApplicationsView() {
                   </div>
                 </div>
               </div>
+
+              {/* Status Management */}
+              <div className="mt-3 space-y-2">
+                <Label className="text-xs font-semibold text-gray-600">
+                  Candidate Status
+                </Label>
+                <div className="flex gap-2">
+                  <Select
+                    value={statusMap[candidate.id] || "Under Review"}
+                    onValueChange={(val) =>
+                      setStatusMap((prev) => ({ ...prev, [candidate.id]: val }))
+                    }
+                  >
+                    <SelectTrigger
+                      className="flex-1 rounded-xl text-xs h-9"
+                      data-ocid={`employer.applications.status_select.${i + 1}`}
+                    >
+                      <SelectValue placeholder="Select status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Under Review">Under Review</SelectItem>
+                      <SelectItem value="Selected">Selected</SelectItem>
+                      <SelectItem value="Rejected">Rejected</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    size="sm"
+                    className="rounded-xl text-xs h-9 px-4 bg-[oklch(30%_0.1_261)] hover:bg-[oklch(25%_0.1_261)] text-white"
+                    onClick={() => {
+                      updateCandidateStatus(
+                        candidate.id,
+                        statusMap[candidate.id] || "Under Review",
+                      );
+                      toast.success("Status updated! ✅");
+                    }}
+                    data-ocid={`employer.applications.save_status_button.${i + 1}`}
+                  >
+                    Save
+                  </Button>
+                </div>
+              </div>
+
               <Button
                 size="sm"
                 variant="outline"
@@ -1206,9 +1365,16 @@ export default function EmployerDashboard({
       label: "Applications",
     },
     { id: "plans" as View, icon: <CreditCard size={20} />, label: "Plans" },
+    { id: "profile" as View, icon: <User size={20} />, label: "Profile" },
   ];
 
-  const subViews: View[] = ["post-job", "manage-jobs", "applications", "plans"];
+  const subViews: View[] = [
+    "post-job",
+    "manage-jobs",
+    "applications",
+    "plans",
+    "profile",
+  ];
   const isSubView = subViews.includes(view);
 
   const viewTitles: Partial<Record<View, string>> = {
@@ -1216,6 +1382,7 @@ export default function EmployerDashboard({
     "manage-jobs": "Manage Jobs",
     applications: "Applications Received",
     plans: "Subscription Plans",
+    profile: "My Profile",
   };
 
   return (
@@ -1277,6 +1444,9 @@ export default function EmployerDashboard({
           {view === "manage-jobs" && <ManageJobsView key="manage-jobs" />}
           {view === "applications" && <ApplicationsView key="applications" />}
           {view === "plans" && <PlansView key="plans" />}
+          {view === "profile" && (
+            <ProfileView key="profile" onSaved={() => setView("dashboard")} />
+          )}
         </AnimatePresence>
       </div>
 
