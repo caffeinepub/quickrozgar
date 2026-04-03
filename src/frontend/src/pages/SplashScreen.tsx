@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { saveEmployeeSession } from "../utils/employeeSession";
 import { saveEmployerSession } from "../utils/employerSession";
@@ -10,29 +10,20 @@ interface SplashScreenProps {
   onGetStarted: (mode: "employee" | "employer") => void;
 }
 
-type EmployeeStep = "form" | "otp" | "done";
-type EmployerStep = "form" | "done";
-
 export default function SplashScreen({ onGetStarted }: SplashScreenProps) {
   const [activeTab, setActiveTab] = useState<"employee" | "employer">(
     "employee",
   );
 
   // Employee state
-  const [empStep, setEmpStep] = useState<EmployeeStep>("form");
   const [empMobile, setEmpMobile] = useState("");
   const [empEmail, setEmpEmail] = useState("");
-  const [empOtp, setEmpOtp] = useState("");
-  const [generatedOtp, setGeneratedOtp] = useState("");
-  const [countdown, setCountdown] = useState(0);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [empLoading, setEmpLoading] = useState(false);
 
   // Employer state
-  const [erpStep, setErpStep] = useState<EmployerStep>("form");
   const [erpMobile, setErpMobile] = useState("");
   const [erpEmail, setErpEmail] = useState("");
-  const [erpPassword, setErpPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
+  const [erpLoading, setErpLoading] = useState(false);
 
   // Signup modal state
   const [showSignup, setShowSignup] = useState(false);
@@ -42,32 +33,10 @@ export default function SplashScreen({ onGetStarted }: SplashScreenProps) {
   const [signupName, setSignupName] = useState("");
   const [signupPhone, setSignupPhone] = useState("");
   const [signupEmail, setSignupEmail] = useState("");
-  const [signupPassword, setSignupPassword] = useState("");
   const [signupCompany, setSignupCompany] = useState("");
 
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, []);
-
-  const startCountdown = () => {
-    setCountdown(30);
-    timerRef.current = setInterval(() => {
-      setCountdown((c) => {
-        if (c <= 1) {
-          if (timerRef.current) clearInterval(timerRef.current);
-          return 0;
-        }
-        return c - 1;
-      });
-    }, 1000);
-  };
-
-  const makeOtp = () => String(Math.floor(100000 + Math.random() * 900000));
-
-  // --- Employee handlers (no Internet Identity needed) ---
-  const handleSendOtp = () => {
+  // --- Employee login (no OTP, no Internet Identity) ---
+  const handleEmployeeLogin = () => {
     if (!empMobile || empMobile.length < 10) {
       toast.error("Valid mobile number enter karo");
       return;
@@ -76,41 +45,17 @@ export default function SplashScreen({ onGetStarted }: SplashScreenProps) {
       toast.error("Valid email enter karo");
       return;
     }
-    const otp = makeOtp();
-    setGeneratedOtp(otp);
-    setEmpStep("otp");
-    startCountdown();
-    toast.success(`OTP bheja gaya! 📱 (Demo: ${otp})`);
-  };
-
-  const handleVerifyOtp = () => {
-    if (empOtp.length < 4) {
-      toast.error("OTP daalo");
-      return;
-    }
-    if (generatedOtp && empOtp !== generatedOtp) {
-      toast.error("Galat OTP! Please dobara try karo.");
-      return;
-    }
-    // Save employee session to localStorage (no Internet Identity required)
+    setEmpLoading(true);
+    // Save session and redirect
     saveEmployeeSession(empMobile, empEmail);
     window.dispatchEvent(new Event("storage"));
-    setEmpStep("done");
-    // Small delay for the success UI to show
     setTimeout(() => {
+      setEmpLoading(false);
       onGetStarted("employee");
-    }, 800);
+    }, 500);
   };
 
-  const handleResend = () => {
-    if (countdown > 0) return;
-    const otp = makeOtp();
-    setGeneratedOtp(otp);
-    startCountdown();
-    toast.success(`OTP dobara bheja gaya! 📱 (Demo: ${otp})`);
-  };
-
-  // --- Employer handlers (localStorage session, no Internet Identity) ---
+  // --- Employer login (no password, no Internet Identity) ---
   const handleEmployerLogin = () => {
     if (!erpMobile || erpMobile.length < 10) {
       toast.error("Valid mobile number enter karo");
@@ -120,21 +65,14 @@ export default function SplashScreen({ onGetStarted }: SplashScreenProps) {
       toast.error("Valid email enter karo");
       return;
     }
-    if (!erpPassword || erpPassword.length < 4) {
-      toast.error("Password enter karo (min 4 characters)");
-      return;
-    }
-    // Save session to localStorage and redirect immediately
+    setErpLoading(true);
+    // Save session and redirect immediately
     saveEmployerSession(erpMobile, erpEmail);
     window.dispatchEvent(new Event("storage"));
-    setErpStep("done");
     setTimeout(() => {
+      setErpLoading(false);
       onGetStarted("employer");
-    }, 600);
-  };
-
-  const handleForgotPassword = () => {
-    toast.info("Password reset link bheja jayega aapke email par");
+    }, 500);
   };
 
   const handleCreateAccount = (role: "employee" | "employer") => {
@@ -142,7 +80,6 @@ export default function SplashScreen({ onGetStarted }: SplashScreenProps) {
     setSignupName("");
     setSignupPhone("");
     setSignupEmail("");
-    setSignupPassword("");
     setSignupCompany("");
     setShowSignup(true);
   };
@@ -166,14 +103,12 @@ export default function SplashScreen({ onGetStarted }: SplashScreenProps) {
     }
 
     if (signupRole === "employee") {
-      // Employee signup: save to localStorage and redirect
       saveEmployeeSession(signupPhone, signupEmail, signupName);
       window.dispatchEvent(new Event("storage"));
       setShowSignup(false);
       toast.success("Account create ho gaya!");
       setTimeout(() => onGetStarted("employee"), 300);
     } else {
-      // Employer signup: save to localStorage and redirect immediately
       saveEmployerSession(signupPhone, signupEmail, signupCompany);
       window.dispatchEvent(new Event("storage"));
       setShowSignup(false);
@@ -271,118 +206,56 @@ export default function SplashScreen({ onGetStarted }: SplashScreenProps) {
                 transition={{ duration: 0.2 }}
                 className="space-y-4"
               >
-                {empStep === "form" && (
-                  <>
-                    <p className="text-white font-bold text-base text-center">
-                      Employee Login
+                <p className="text-white font-bold text-base text-center">
+                  Employee Login
+                </p>
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-white/70 text-xs font-semibold block mb-1">
+                      Mobile Number
                     </p>
-                    <div className="space-y-3">
-                      <div>
-                        <p className="text-white/70 text-xs font-semibold block mb-1">
-                          Mobile Number
-                        </p>
-                        <Input
-                          type="tel"
-                          placeholder="10-digit mobile number"
-                          value={empMobile}
-                          onChange={(e) => setEmpMobile(e.target.value)}
-                          className="bg-white/10 border-white/20 text-white placeholder:text-white/40 rounded-2xl h-12"
-                          data-ocid="splash.emp_mobile_input"
-                        />
-                      </div>
-                      <div>
-                        <p className="text-white/70 text-xs font-semibold block mb-1">
-                          Email ID
-                        </p>
-                        <Input
-                          type="email"
-                          placeholder="your@email.com"
-                          value={empEmail}
-                          onChange={(e) => setEmpEmail(e.target.value)}
-                          className="bg-white/10 border-white/20 text-white placeholder:text-white/40 rounded-2xl h-12"
-                          data-ocid="splash.emp_email_input"
-                        />
-                      </div>
-                    </div>
-                    <Button
-                      className="w-full h-12 rounded-2xl font-bold bg-white text-[#0a1628] hover:bg-white/90"
-                      onClick={handleSendOtp}
-                      data-ocid="splash.emp_get_otp_button"
-                    >
-                      Get OTP & Login as Employee 📲
-                    </Button>
-                    <button
-                      type="button"
-                      onClick={() => handleCreateAccount("employee")}
-                      className="w-full text-center text-amber-400 text-sm font-semibold hover:text-amber-300 transition-colors"
-                      data-ocid="splash.emp_create_account_button"
-                    >
-                      + Create New Account
-                    </button>
-                  </>
-                )}
-
-                {empStep === "otp" && (
-                  <>
-                    <div className="text-center">
-                      <p className="text-white font-bold text-base">
-                        Enter OTP
-                      </p>
-                      <p className="text-white/50 text-xs mt-1">
-                        Sent to: {empMobile}
-                      </p>
-                    </div>
                     <Input
-                      type="number"
-                      placeholder="6-digit OTP"
-                      value={empOtp}
-                      onChange={(e) => setEmpOtp(e.target.value.slice(0, 6))}
-                      className="bg-white/10 border-white/20 text-white placeholder:text-white/40 rounded-2xl h-12 text-center text-lg tracking-widest"
-                      data-ocid="splash.emp_otp_input"
+                      type="tel"
+                      placeholder="10-digit mobile number"
+                      value={empMobile}
+                      onChange={(e) => setEmpMobile(e.target.value)}
+                      className="bg-white/10 border-white/20 text-white placeholder:text-white/40 rounded-2xl h-12"
+                      data-ocid="splash.emp_mobile_input"
                     />
-                    <Button
-                      className="w-full h-12 rounded-2xl font-bold bg-white text-[#0a1628] hover:bg-white/90"
-                      onClick={handleVerifyOtp}
-                      data-ocid="splash.emp_verify_otp_button"
-                    >
-                      Login as Employee ✅
-                    </Button>
-                    <div className="flex items-center justify-between">
-                      <button
-                        type="button"
-                        onClick={() => setEmpStep("form")}
-                        className="text-white/50 text-xs hover:text-white/80"
-                      >
-                        ← Back
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleResend}
-                        disabled={countdown > 0}
-                        className={`text-xs font-semibold ${
-                          countdown > 0
-                            ? "text-white/30"
-                            : "text-amber-400 hover:text-amber-300"
-                        }`}
-                        data-ocid="splash.emp_resend_otp_button"
-                      >
-                        {countdown > 0
-                          ? `Resend in ${countdown}s`
-                          : "Resend OTP"}
-                      </button>
-                    </div>
-                  </>
-                )}
-
-                {empStep === "done" && (
-                  <div className="text-center py-4">
-                    <p className="text-4xl mb-2">✅</p>
-                    <p className="text-white font-bold">Login Successful!</p>
-                    <p className="text-white/50 text-xs mt-1">
-                      Redirecting to Employee Dashboard...
-                    </p>
                   </div>
-                )}
+                  <div>
+                    <p className="text-white/70 text-xs font-semibold block mb-1">
+                      Email ID
+                    </p>
+                    <Input
+                      type="email"
+                      placeholder="your@email.com"
+                      value={empEmail}
+                      onChange={(e) => setEmpEmail(e.target.value)}
+                      className="bg-white/10 border-white/20 text-white placeholder:text-white/40 rounded-2xl h-12"
+                      data-ocid="splash.emp_email_input"
+                      onKeyDown={(e) =>
+                        e.key === "Enter" && handleEmployeeLogin()
+                      }
+                    />
+                  </div>
+                </div>
+                <Button
+                  className="w-full h-12 rounded-2xl font-bold bg-white text-[#0a1628] hover:bg-white/90"
+                  onClick={handleEmployeeLogin}
+                  disabled={empLoading}
+                  data-ocid="splash.emp_login_button"
+                >
+                  {empLoading ? "Logging in..." : "Login as Employee 👤"}
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => handleCreateAccount("employee")}
+                  className="w-full text-center text-amber-400 text-sm font-semibold hover:text-amber-300 transition-colors"
+                  data-ocid="splash.emp_create_account_button"
+                >
+                  + Create New Account
+                </button>
               </motion.div>
             )}
 
@@ -396,97 +269,56 @@ export default function SplashScreen({ onGetStarted }: SplashScreenProps) {
                 transition={{ duration: 0.2 }}
                 className="space-y-4"
               >
-                {erpStep === "form" && (
-                  <>
-                    <p className="text-white font-bold text-base text-center">
-                      Employer Login
+                <p className="text-white font-bold text-base text-center">
+                  Employer Login
+                </p>
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-white/70 text-xs font-semibold block mb-1">
+                      Mobile Number
                     </p>
-                    <div className="space-y-3">
-                      <div>
-                        <p className="text-white/70 text-xs font-semibold block mb-1">
-                          Mobile Number
-                        </p>
-                        <Input
-                          type="tel"
-                          placeholder="10-digit mobile number"
-                          value={erpMobile}
-                          onChange={(e) => setErpMobile(e.target.value)}
-                          className="bg-white/10 border-white/20 text-white placeholder:text-white/40 rounded-2xl h-12"
-                          data-ocid="splash.erp_mobile_input"
-                        />
-                      </div>
-                      <div>
-                        <p className="text-white/70 text-xs font-semibold block mb-1">
-                          Email ID
-                        </p>
-                        <Input
-                          type="email"
-                          placeholder="company@email.com"
-                          value={erpEmail}
-                          onChange={(e) => setErpEmail(e.target.value)}
-                          className="bg-white/10 border-white/20 text-white placeholder:text-white/40 rounded-2xl h-12"
-                          data-ocid="splash.erp_email_input"
-                        />
-                      </div>
-                      <div>
-                        <p className="text-white/70 text-xs font-semibold block mb-1">
-                          Password
-                        </p>
-                        <div className="relative">
-                          <Input
-                            type={showPassword ? "text" : "password"}
-                            placeholder="Enter password"
-                            value={erpPassword}
-                            onChange={(e) => setErpPassword(e.target.value)}
-                            className="bg-white/10 border-white/20 text-white placeholder:text-white/40 rounded-2xl h-12 pr-12"
-                            data-ocid="splash.erp_password_input"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setShowPassword((p) => !p)}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50 hover:text-white/80 text-xs"
-                          >
-                            {showPassword ? "Hide" : "Show"}
-                          </button>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={handleForgotPassword}
-                          className="text-amber-400 text-xs font-semibold mt-1 hover:text-amber-300 transition-colors float-right"
-                          data-ocid="splash.erp_forgot_password_button"
-                        >
-                          Forgot Password?
-                        </button>
-                        <div className="clear-both" />
-                      </div>
-                    </div>
-                    <Button
-                      className="w-full h-12 rounded-2xl font-bold bg-amber-500 hover:bg-amber-400 text-white"
-                      onClick={handleEmployerLogin}
-                      data-ocid="splash.erp_login_button"
-                    >
-                      Login as Employer 💼
-                    </Button>
-                    <button
-                      type="button"
-                      onClick={() => handleCreateAccount("employer")}
-                      className="w-full text-center text-amber-400 text-sm font-semibold hover:text-amber-300 transition-colors"
-                      data-ocid="splash.erp_create_account_button"
-                    >
-                      + Create New Account
-                    </button>
-                  </>
-                )}
-
-                {erpStep === "done" && (
-                  <div className="text-center py-4">
-                    <p className="text-4xl mb-2">✅</p>
-                    <p className="text-white font-bold">Login Successful!</p>
-                    <p className="text-white/50 text-xs mt-1">
-                      Redirecting to Employer Dashboard...
-                    </p>
+                    <Input
+                      type="tel"
+                      placeholder="10-digit mobile number"
+                      value={erpMobile}
+                      onChange={(e) => setErpMobile(e.target.value)}
+                      className="bg-white/10 border-white/20 text-white placeholder:text-white/40 rounded-2xl h-12"
+                      data-ocid="splash.erp_mobile_input"
+                    />
                   </div>
-                )}
+                  <div>
+                    <p className="text-white/70 text-xs font-semibold block mb-1">
+                      Email ID
+                    </p>
+                    <Input
+                      type="email"
+                      placeholder="company@email.com"
+                      value={erpEmail}
+                      onChange={(e) => setErpEmail(e.target.value)}
+                      className="bg-white/10 border-white/20 text-white placeholder:text-white/40 rounded-2xl h-12"
+                      data-ocid="splash.erp_email_input"
+                      onKeyDown={(e) =>
+                        e.key === "Enter" && handleEmployerLogin()
+                      }
+                    />
+                  </div>
+                </div>
+                <Button
+                  className="w-full h-12 rounded-2xl font-bold bg-amber-500 hover:bg-amber-400 text-white"
+                  onClick={handleEmployerLogin}
+                  disabled={erpLoading}
+                  data-ocid="splash.erp_login_button"
+                >
+                  {erpLoading ? "Logging in..." : "Login as Employer 💼"}
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => handleCreateAccount("employer")}
+                  className="w-full text-center text-amber-400 text-sm font-semibold hover:text-amber-300 transition-colors"
+                  data-ocid="splash.erp_create_account_button"
+                >
+                  + Create New Account
+                </button>
               </motion.div>
             )}
           </AnimatePresence>
@@ -552,15 +384,6 @@ export default function SplashScreen({ onGetStarted }: SplashScreenProps) {
                   placeholder="Company Name"
                   value={signupCompany}
                   onChange={(e) => setSignupCompany(e.target.value)}
-                  className="bg-white/10 border-white/20 text-white placeholder:text-white/40 rounded-2xl h-11"
-                />
-              )}
-              {signupRole === "employer" && (
-                <Input
-                  type="password"
-                  placeholder="Set Password"
-                  value={signupPassword}
-                  onChange={(e) => setSignupPassword(e.target.value)}
                   className="bg-white/10 border-white/20 text-white placeholder:text-white/40 rounded-2xl h-11"
                 />
               )}
