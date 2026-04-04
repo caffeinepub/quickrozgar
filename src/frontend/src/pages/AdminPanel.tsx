@@ -46,7 +46,47 @@ import {
   backendGetAllEmployerProfiles,
   backendGetAllJobs,
 } from "../utils/backendDb";
-import { getAllEmployeeProfiles } from "../utils/localDb";
+import {
+  type LocalApplication,
+  type LocalJob,
+  getAllApplicationsAdmin,
+  getAllEmployeeProfiles,
+  getAllJobsAdmin,
+} from "../utils/localDb";
+
+function localJobsToBackend(localJobs: LocalJob[]): BackendJob[] {
+  return localJobs.map((j) => ({
+    id: j.id,
+    title: j.title,
+    company: j.company,
+    location: j.location,
+    salary: j.salary,
+    category: j.category,
+    description: j.description,
+    employerPhone: j.employerPhone,
+    postedAt: j.postedAt,
+    status: j.status,
+  }));
+}
+
+function localAppsToBackend(
+  localApps: LocalApplication[],
+): BackendApplication[] {
+  return localApps.map((a) => ({
+    id: a.id,
+    jobId: a.jobId,
+    jobTitle: a.jobTitle,
+    company: a.company,
+    location: a.location,
+    employeePhone: a.employeePhone,
+    employeeName: a.employeeName || "",
+    employeeEmail: a.employeeEmail || "",
+    experience: a.experience || "",
+    appliedAt: a.appliedAt,
+    status: a.status,
+    candidateStatus: a.candidateStatus || "Under Review",
+  }));
+}
 
 type Section =
   | "dashboard"
@@ -253,12 +293,22 @@ function AdminDashboard() {
       backendGetAllJobs(),
       backendGetAllApplications(),
       backendGetAllEmployerPlans(),
-    ]).then(([j, a, p]) => {
-      setJobs(j);
-      setApps(a);
-      setPlans(p);
-      setLoading(false);
-    });
+    ])
+      .then(([j, a, p]) => {
+        const finalJobs =
+          j.length > 0 ? j : localJobsToBackend(getAllJobsAdmin());
+        const finalApps =
+          a.length > 0 ? a : localAppsToBackend(getAllApplicationsAdmin());
+        setJobs(finalJobs);
+        setApps(finalApps);
+        setPlans(p);
+        setLoading(false);
+      })
+      .catch(() => {
+        setJobs(localJobsToBackend(getAllJobsAdmin()));
+        setApps(localAppsToBackend(getAllApplicationsAdmin()));
+        setLoading(false);
+      });
   }, []);
 
   // Use pending items count as the notification badge
@@ -574,10 +624,17 @@ function AdminEmployees() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    backendGetAllApplications().then((a) => {
-      setApps(a);
-      setLoading(false);
-    });
+    backendGetAllApplications()
+      .then((a) => {
+        const finalApps =
+          a.length > 0 ? a : localAppsToBackend(getAllApplicationsAdmin());
+        setApps(finalApps);
+        setLoading(false);
+      })
+      .catch(() => {
+        setApps(localAppsToBackend(getAllApplicationsAdmin()));
+        setLoading(false);
+      });
   }, []);
 
   // Build employee map from real application data (backend)
@@ -786,13 +843,23 @@ function AdminEmployers() {
       backendGetAllApplications(),
       backendGetAllEmployerProfiles(),
       backendGetAllEmployerPlans(),
-    ]).then(([j, a, p, pl]) => {
-      setJobs(j);
-      setApps(a);
-      setProfiles(p);
-      setPlans(pl);
-      setLoading(false);
-    });
+    ])
+      .then(([j, a, p, pl]) => {
+        const finalJobs =
+          j.length > 0 ? j : localJobsToBackend(getAllJobsAdmin());
+        const finalApps =
+          a.length > 0 ? a : localAppsToBackend(getAllApplicationsAdmin());
+        setJobs(finalJobs);
+        setApps(finalApps);
+        setProfiles(p);
+        setPlans(pl);
+        setLoading(false);
+      })
+      .catch(() => {
+        setJobs(localJobsToBackend(getAllJobsAdmin()));
+        setApps(localAppsToBackend(getAllApplicationsAdmin()));
+        setLoading(false);
+      });
   }, []);
 
   const planMap = new Map(plans);
@@ -1079,10 +1146,17 @@ function AdminJobs() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    backendGetAllJobs().then((j) => {
-      setJobs(j);
-      setLoading(false);
-    });
+    backendGetAllJobs()
+      .then((j) => {
+        const finalJobs =
+          j.length > 0 ? j : localJobsToBackend(getAllJobsAdmin());
+        setJobs(finalJobs);
+        setLoading(false);
+      })
+      .catch(() => {
+        setJobs(localJobsToBackend(getAllJobsAdmin()));
+        setLoading(false);
+      });
   }, []);
 
   // Sort by company name alphabetically, then filter
@@ -1264,13 +1338,21 @@ function AdminApplications() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([backendGetAllApplications(), backendGetAllJobs()]).then(
-      ([a, j]) => {
-        setApplications(a);
-        setJobs(j);
+    Promise.all([backendGetAllApplications(), backendGetAllJobs()])
+      .then(([a, j]) => {
+        const finalApps =
+          a.length > 0 ? a : localAppsToBackend(getAllApplicationsAdmin());
+        const finalJobs =
+          j.length > 0 ? j : localJobsToBackend(getAllJobsAdmin());
+        setApplications(finalApps);
+        setJobs(finalJobs);
         setLoading(false);
-      },
-    );
+      })
+      .catch(() => {
+        setApplications(localAppsToBackend(getAllApplicationsAdmin()));
+        setJobs(localJobsToBackend(getAllJobsAdmin()));
+        setLoading(false);
+      });
   }, []);
 
   // Build a map of jobId -> category for quick lookup
@@ -1434,13 +1516,21 @@ function AdminReports() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([backendGetAllJobs(), backendGetAllApplications()]).then(
-      ([j, a]) => {
-        setJobs(j);
-        setApps(a);
+    Promise.all([backendGetAllJobs(), backendGetAllApplications()])
+      .then(([j, a]) => {
+        const finalJobs =
+          j.length > 0 ? j : localJobsToBackend(getAllJobsAdmin());
+        const finalApps =
+          a.length > 0 ? a : localAppsToBackend(getAllApplicationsAdmin());
+        setJobs(finalJobs);
+        setApps(finalApps);
         setLoading(false);
-      },
-    );
+      })
+      .catch(() => {
+        setJobs(localJobsToBackend(getAllJobsAdmin()));
+        setApps(localAppsToBackend(getAllApplicationsAdmin()));
+        setLoading(false);
+      });
   }, []);
 
   const handleExportExcel = () => {
