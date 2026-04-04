@@ -35,8 +35,6 @@ import {
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
-import type { JobApplication, JobListing } from "../backend";
-import { useActor } from "../hooks/useActor";
 import {
   adminApproveApplication,
   adminApproveJob,
@@ -256,38 +254,21 @@ function isWithinPeriod(ts: number, filter: ActivityFilter): boolean {
 }
 
 function AdminDashboard() {
-  const { actor, isFetching } = useActor();
-
-  const [recentActivity, setRecentActivity] = useState<{
-    recentJobs: JobListing[];
-    recentApplications: JobApplication[];
-  } | null>(null);
   const [notificationDismissed, setNotificationDismissed] = useState(false);
   const [activityFilter, setActivityFilter] = useState<ActivityFilter>("today");
 
-  useEffect(() => {
-    if (!actor || isFetching) return;
-    (async () => {
-      try {
-        const activity = await actor.adminGetRecentActivity();
-
-        setRecentActivity({
-          recentJobs: activity.recentJobs.slice(0, 5),
-          recentApplications: activity.recentApplications.slice(0, 5),
-        });
-      } catch {
-        // ignore
-      }
-    })();
-  }, [actor, isFetching]);
-
-  const totalActivityCount =
-    (recentActivity?.recentJobs.length ?? 0) +
-    (recentActivity?.recentApplications.length ?? 0);
-
-  // Compute local stats
+  // Compute local stats - all data from localDb (localStorage)
   const localJobs = getAllJobsAdmin();
   const localApps = getAllApplicationsAdmin();
+
+  // Use pending items count as the notification badge
+  const pendingJobsCount = localJobs.filter(
+    (j) => j.status === "Pending",
+  ).length;
+  const pendingAppsCount = localApps.filter(
+    (a) => a.status === "Pending",
+  ).length;
+  const totalActivityCount = pendingJobsCount + pendingAppsCount;
 
   const totalJobs = localJobs.length;
   const approvedJobs = localJobs.filter((j) => j.status === "Approved").length;
@@ -341,9 +322,10 @@ function AdminDashboard() {
           <p className="text-sm text-blue-700 flex-1">
             🔔{" "}
             <span className="font-semibold">
-              {totalActivityCount} new activities
+              {totalActivityCount} pending item
+              {totalActivityCount !== 1 ? "s" : ""}
             </span>{" "}
-            since last check
+            awaiting your review
           </p>
           <button
             type="button"
