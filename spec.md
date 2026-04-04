@@ -1,26 +1,31 @@
-# QuickRozgar
+# QuickRozgar — Admin Cross-Device Data Fix
 
 ## Current State
-Admin panel exists at `#admin` URL hash. Login uses hardcoded credentials (`admin@quickrozgar.com` / `Admin@123`) with localStorage session (`adminLoggedIn`). The `AdminApp` component imports `useInternetIdentity` and calls `clear()` on logout, which is unnecessary and may cause errors. Admin session is also cleared when employee/employer logout is called.
+All job and application data is stored exclusively in `localStorage` via `localDb.ts`. This means data is device-specific — jobs posted on one device are invisible to the Admin (or anyone) on another device. The ICP backend canister has full job/application storage APIs, but the frontend never writes to them. The backend's admin query endpoints (`adminGetAllApplications`, `adminGetAllWorkers`, etc.) require Internet Identity authentication (assertAdmin checks II caller principal), but the Admin panel uses a localStorage-based session with fixed email/password credentials.
 
 ## Requested Changes (Diff)
 
 ### Add
-- Dedicated `/admin` path support (in addition to `#admin` hash) so admin can access the panel via a direct link from any device
-- Admin session utility (`adminSession.ts`) for clean session get/save/clear
-- Admin panel accessible at both `#admin` hash and a `/admin` pathname route
+- New public (no-auth) backend query functions: `publicGetAllJobs`, `publicGetAllApplications` — returns all jobs/applications for admin reading without requiring II auth
+- New public application submission function: `publicSubmitApplication` — saves application without requiring II
+- New public job creation function: `publicCreateJob` — saves job without requiring II
+- These functions bypass assertAdmin since they are used by the non-II-authenticated admin panel
 
 ### Modify
-- `AdminApp.tsx`: Remove `useInternetIdentity` dependency; use only localStorage for admin session; logout only clears admin session, not II
-- `App.tsx`: Detect admin route via both `window.location.hash === '#admin'` AND `window.location.pathname.includes('/admin')` or a URL param so admin can reach panel from any link
-- Admin logout should only clear admin localStorage key, not touch employee/employer sessions
-- `AdminLoginScreen.tsx`: No changes needed (credentials and UI already correct)
+- `EmployerDashboard.tsx`: When employer posts a job, ALSO write to ICP backend via `publicCreateJob` (in addition to localStorage for backward compat)
+- `JobsScreen.tsx` / employee apply flow: When employee applies, ALSO write to ICP backend via `publicSubmitApplication`
+- `AdminPanel.tsx`: Fetch jobs and applications from ICP backend (`publicGetAllJobs`, `publicGetAllApplications`) instead of localStorage
+- `AdminPanel.tsx`: Approve/Reject/Delete actions update ICP backend as well as localStorage
+- `localDb.ts`: Keep as-is for backward compat; add bridge functions that write to both localStorage AND backend
 
 ### Remove
-- `useInternetIdentity` import and usage from `AdminApp.tsx` (not needed for admin flow)
+- AdminPanel reading from localStorage for jobs and applications data (replace with backend reads)
 
 ## Implementation Plan
-1. Create `src/frontend/src/utils/adminSession.ts` - clean session helpers (save, get, clear, isAdminLoggedIn)
-2. Update `AdminApp.tsx` - remove II dependency, use adminSession utils, fix logout to only clear admin session
-3. Update `App.tsx` - detect admin route via hash OR pathname containing 'admin' OR `?admin` search param, ensuring any direct link works
-4. Validate (lint + build)
+1. Update `main.mo` to add public (anonymous-accessible) read/write functions for jobs and applications with separate storage maps
+2. Update `backend.d.ts` bindings after motoko generation
+3. Create a `backendDb.ts` utility that writes jobs and applications to the ICP backend using anonymous actor (no II required)
+4. Update `EmployerDashboard.tsx` to call backendDb on job post
+5. Update `JobsScreen.tsx` to call backendDb on job apply
+6. Update `AdminPanel.tsx` to fetch from backendDb instead of localDb for display data
+7. Keep localStorage writes for backward compat (fallback if backend fails)

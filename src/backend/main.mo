@@ -78,6 +78,36 @@ actor {
     };
   };
 
+  // Public Job (for cross-device storage without II)
+  type PublicJob = {
+    id : Text; // client-generated ID
+    title : Text;
+    company : Text;
+    location : Text;
+    salary : Text;
+    category : Text;
+    description : Text;
+    employerPhone : Text;
+    postedAt : Nat;
+    status : Text; // Pending | Approved | Rejected
+  };
+
+  // Public Application (for cross-device storage without II)
+  type PublicApplication = {
+    id : Text; // client-generated ID
+    jobId : Text;
+    jobTitle : Text;
+    company : Text;
+    location : Text;
+    employeePhone : Text;
+    employeeName : Text;
+    employeeEmail : Text;
+    experience : Text;
+    appliedAt : Nat;
+    status : Text; // Pending | Approved | Rejected
+    candidateStatus : Text; // Under Review | Selected | Rejected
+  };
+
   // Course
   type Course = {
     id : Nat;
@@ -129,6 +159,12 @@ actor {
   let blockedUsers = Map.empty<Principal, Bool>();
   let employerPlans = Map.empty<Principal, Text>();
 
+  // Public (cross-device) storage — no II required
+  let publicJobs = Map.empty<Text, PublicJob>();
+  let publicApplications = Map.empty<Text, PublicApplication>();
+  let employerProfilesPublic = Map.empty<Text, Text>(); // phone -> companyName
+  let employerPlansPublic = Map.empty<Text, Text>(); // phone -> plan
+
   // Authorization helpers
   func assertAdmin(caller : Principal) {
     if (not AccessControl.isAdmin(accessControlState, caller)) {
@@ -149,7 +185,250 @@ actor {
     assertNotBlocked(caller);
   };
 
-  // Required user profile functions
+  // ─── Public Cross-Device Data Functions (no auth required) ───────────────
+
+  /** Save a job to the central database. Called by employer on job post. */
+  public shared func publicSaveJob(
+    id : Text,
+    title : Text,
+    company : Text,
+    location : Text,
+    salary : Text,
+    category : Text,
+    description : Text,
+    employerPhone : Text,
+    postedAt : Nat,
+  ) : async () {
+    let job : PublicJob = {
+      id;
+      title;
+      company;
+      location;
+      salary;
+      category;
+      description;
+      employerPhone;
+      postedAt;
+      status = "Pending";
+    };
+    publicJobs.add(id, job);
+  };
+
+  /** Save an application to the central database. Called by employee on apply. */
+  public shared func publicSaveApplication(
+    id : Text,
+    jobId : Text,
+    jobTitle : Text,
+    company : Text,
+    location : Text,
+    employeePhone : Text,
+    employeeName : Text,
+    employeeEmail : Text,
+    experience : Text,
+    appliedAt : Nat,
+  ) : async () {
+    // Prevent duplicate applications
+    let alreadyApplied = publicApplications.any(
+      func(_, app) { app.jobId == jobId and app.employeePhone == employeePhone }
+    );
+    if (alreadyApplied) {
+      Runtime.trap("Already applied to this job");
+    };
+    let app : PublicApplication = {
+      id;
+      jobId;
+      jobTitle;
+      company;
+      location;
+      employeePhone;
+      employeeName;
+      employeeEmail;
+      experience;
+      appliedAt;
+      status = "Pending";
+      candidateStatus = "Under Review";
+    };
+    publicApplications.add(id, app);
+  };
+
+  /** Get all jobs (for admin cross-device read). */
+  public query func publicGetAllJobs() : async [PublicJob] {
+    publicJobs.toArray().map(func((_, job)) { job });
+  };
+
+  /** Get all applications (for admin cross-device read). */
+  public query func publicGetAllApplications() : async [PublicApplication] {
+    publicApplications.toArray().map(func((_, app)) { app });
+  };
+
+  /** Get only approved jobs (for employee job listing). */
+  public query func publicGetApprovedJobs() : async [PublicJob] {
+    let result = List.empty<PublicJob>();
+    for ((_, job) in publicJobs.entries()) {
+      if (job.status == "Approved") {
+        result.add(job);
+      };
+    };
+    result.toArray();
+  };
+
+  /** Get applications for a specific employee. */
+  public query func publicGetMyApplications(employeePhone : Text) : async [PublicApplication] {
+    let result = List.empty<PublicApplication>();
+    for ((_, app) in publicApplications.entries()) {
+      if (app.employeePhone == employeePhone) {
+        result.add(app);
+      };
+    };
+    result.toArray();
+  };
+
+  /** Get applications for a specific employer's jobs (approved only). */
+  public query func publicGetEmployerApplications(employerPhone : Text) : async [PublicApplication] {
+    // Get all jobs for this employer
+    let empJobIds = List.empty<Text>();
+    for ((_, job) in publicJobs.entries()) {
+      if (job.employerPhone == employerPhone) {
+        empJobIds.add(job.id);
+      };
+    };
+    let jobIdSet = empJobIds.toArray();
+    // Get approved applications for those jobs
+    let result = List.empty<PublicApplication>();
+    for ((_, app) in publicApplications.entries()) {
+      var found = false;
+      for (jid in jobIdSet.vals()) {
+        if (jid == app.jobId and app.status == "Approved") {
+          found := true;
+        };
+      };
+      if (found) { result.add(app); };
+    };
+    result.toArray();
+  };
+
+  /** Get jobs for a specific employer. */
+  public query func publicGetEmployerJobs(employerPhone : Text) : async [PublicJob] {
+    let result = List.empty<PublicJob>();
+    for ((_, job) in publicJobs.entries()) {
+      if (job.employerPhone == employerPhone) {
+        result.add(job);
+      };
+    };
+    result.toArray();
+  };
+
+  /** Admin: update job status. */
+  public shared func publicAdminUpdateJobStatus(jobId : Text, status : Text) : async () {
+    switch (publicJobs.get(jobId)) {
+      case (null) { Runtime.trap("Job not found") };
+      case (?job) {
+        let updated : PublicJob = {
+          id = job.id;
+          title = job.title;
+          company = job.company;
+          location = job.location;
+          salary = job.salary;
+          category = job.category;
+          description = job.description;
+          employerPhone = job.employerPhone;
+          postedAt = job.postedAt;
+          status;
+        };
+        publicJobs.add(jobId, updated);
+      };
+    };
+  };
+
+  /** Admin: update application status. */
+  public shared func publicAdminUpdateApplicationStatus(appId : Text, status : Text) : async () {
+    switch (publicApplications.get(appId)) {
+      case (null) { Runtime.trap("Application not found") };
+      case (?app) {
+        let updated : PublicApplication = {
+          id = app.id;
+          jobId = app.jobId;
+          jobTitle = app.jobTitle;
+          company = app.company;
+          location = app.location;
+          employeePhone = app.employeePhone;
+          employeeName = app.employeeName;
+          employeeEmail = app.employeeEmail;
+          experience = app.experience;
+          appliedAt = app.appliedAt;
+          status;
+          candidateStatus = app.candidateStatus;
+        };
+        publicApplications.add(appId, updated);
+      };
+    };
+  };
+
+  /** Employer: update candidate status. */
+  public shared func publicUpdateCandidateStatus(appId : Text, candidateStatus : Text) : async () {
+    switch (publicApplications.get(appId)) {
+      case (null) { Runtime.trap("Application not found") };
+      case (?app) {
+        let updated : PublicApplication = {
+          id = app.id;
+          jobId = app.jobId;
+          jobTitle = app.jobTitle;
+          company = app.company;
+          location = app.location;
+          employeePhone = app.employeePhone;
+          employeeName = app.employeeName;
+          employeeEmail = app.employeeEmail;
+          experience = app.experience;
+          appliedAt = app.appliedAt;
+          status = app.status;
+          candidateStatus;
+        };
+        publicApplications.add(appId, updated);
+      };
+    };
+  };
+
+  /** Admin: delete a job and its applications. */
+  public shared func publicAdminDeleteJob(jobId : Text) : async () {
+    publicJobs.remove(jobId);
+    // Remove related applications
+    let toDelete = List.empty<Text>();
+    for ((appId, app) in publicApplications.entries()) {
+      if (app.jobId == jobId) {
+        toDelete.add(appId);
+      };
+    };
+    for (appId in toDelete.toArray().vals()) {
+      publicApplications.remove(appId);
+    };
+  };
+
+  /** Save employer profile (company name) keyed by phone. */
+  public shared func publicSaveEmployerProfile(phone : Text, companyName : Text) : async () {
+    employerProfilesPublic.add(phone, companyName);
+  };
+
+  /** Save employer plan keyed by phone. */
+  public shared func publicSaveEmployerPlan(phone : Text, plan : Text) : async () {
+    employerPlansPublic.add(phone, plan);
+  };
+
+  /** Get employer company name by phone. */
+  public query func publicGetEmployerCompanyName(phone : Text) : async ?Text {
+    employerProfilesPublic.get(phone);
+  };
+
+  /** Get all employer profiles (phone -> companyName). */
+  public query func publicGetAllEmployerProfiles() : async [(Text, Text)] {
+    employerProfilesPublic.toArray();
+  };
+
+  /** Get all employer plans (phone -> plan). */
+  public query func publicGetAllEmployerPlans2() : async [(Text, Text)] {
+    employerPlansPublic.toArray();
+  };
+
+  // ─── Required user profile functions ────────────────────────────────────
   public query ({ caller }) func getCallerUserProfile() : async ?UserProfile {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can access profiles");
@@ -179,7 +458,6 @@ actor {
       experience;
     };
     workerProfiles.add(caller, profile);
-    // Update user profile type
     let userProfile = {
       profileType = #worker;
     };
@@ -187,9 +465,7 @@ actor {
   };
 
   public query ({ caller }) func getWorkerProfile(user : Principal) : async ?WorkerProfile {
-    // Workers can view their own profile, employers can view worker profiles (to evaluate applicants), admins can view any profile
     if (caller != user and not AccessControl.isAdmin(accessControlState, caller)) {
-      // Check if caller is a user (not guest) - employers need to be logged in to view worker profiles
       if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
         Runtime.trap("Unauthorized: You must be signed in to view worker profiles");
       };
@@ -207,7 +483,6 @@ actor {
       industry;
     };
     employerProfiles.add(caller, profile);
-    // Update user profile type
     let userProfile = {
       profileType = #employer;
     };
@@ -215,9 +490,7 @@ actor {
   };
 
   public query ({ caller }) func getEmployerProfile(user : Principal) : async ?EmployerProfile {
-    // Employers can view their own profile, workers can view employer profiles (to learn about companies), admins can view any profile
     if (caller != user and not AccessControl.isAdmin(accessControlState, caller)) {
-      // Check if caller is a user (not guest) - workers need to be logged in to view employer profiles
       if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
         Runtime.trap("Unauthorized: You must be signed in to view employer profiles");
       };
@@ -225,10 +498,10 @@ actor {
     employerProfiles.get(user);
   };
 
-  // Job Listings
+  // Job Listings (II-based)
   public shared ({ caller }) func createJobListing(title : Text, company : Text, location : Text, salary : Text, category : Text, description : Text) : async Nat {
     assertUserNotBlocked(caller);
-    assert nextJobId < 2 ** 30; // Prevent overflow
+    assert nextJobId < 2 ** 30;
     let jobId = nextJobId;
     let job = {
       id = jobId;
@@ -251,7 +524,6 @@ actor {
     switch (jobListings.get(jobId)) {
       case (null) { Runtime.trap("Job listing not found") };
       case (?existingJob) {
-        // Only the employer who created the job or an admin can update it
         if (existingJob.employerId != caller and not AccessControl.isAdmin(accessControlState, caller)) {
           Runtime.trap("Unauthorized: Only the job creator or admin can update this listing");
         };
@@ -276,7 +548,6 @@ actor {
     switch (jobListings.get(jobId)) {
       case (null) { Runtime.trap("Job listing not found") };
       case (?existingJob) {
-        // Only the employer who created the job or an admin can delete it
         if (existingJob.employerId != caller and not AccessControl.isAdmin(accessControlState, caller)) {
           Runtime.trap("Unauthorized: Only the job creator or admin can delete this listing");
         };
@@ -285,10 +556,9 @@ actor {
     };
   };
 
-  // Job Applications
+  // Job Applications (II-based)
   public shared ({ caller }) func applyToJob(jobId : Nat) : async Nat {
     assertUserNotBlocked(caller);
-    // Check for duplicate application
     let hasAlreadyApplied = applications.any(
       func(_id, app) { app.workerId == caller and app.job.id == jobId }
     );
@@ -301,7 +571,6 @@ actor {
         switch (jobListings.get(jobId)) {
           case (null) { Runtime.trap("Job listing not found") };
           case (?jobListing) {
-            // Workers cannot apply to their own job listings
             if (jobListing.employerId == caller) {
               Runtime.trap("Unauthorized: You cannot apply to your own job listing");
             };
@@ -328,7 +597,6 @@ actor {
     switch (applications.get(applicationId)) {
       case (null) { Runtime.trap("Application not found") };
       case (?app) {
-        // Only the employer who owns the job or an admin can update application status
         if (app.job.employerId != caller and not AccessControl.isAdmin(accessControlState, caller)) {
           Runtime.trap("Unauthorized: Only the job owner or admin can update application status");
         };
@@ -387,7 +655,6 @@ actor {
 
   // Query functions
   public query ({ caller }) func getAllJobs() : async [JobListing] {
-    // Public access - but non-admins only see approved jobs
     let isAdmin = AccessControl.isAdmin(accessControlState, caller);
     let filteredJobs = List.empty<JobListing>();
     for ((id, listing) in jobListings.entries()) {
@@ -400,7 +667,6 @@ actor {
 
   public query ({ caller }) func getMyApplications() : async [JobApplication] {
     assertUserNotBlocked(caller);
-    // Workers can only see their own applications
     let myApps = List.empty<JobApplication>();
     for ((id, app) in applications.entries()) {
       if (app.workerId == caller) {
@@ -412,7 +678,6 @@ actor {
 
   public query ({ caller }) func getJobApplications(jobId : Nat) : async [JobApplication] {
     assertUserNotBlocked(caller);
-    // Verify the caller owns this job listing
     switch (jobListings.get(jobId)) {
       case (null) { Runtime.trap("Job listing not found") };
       case (?job) {
@@ -431,17 +696,14 @@ actor {
   };
 
   public query ({ caller }) func getAllCourses() : async [Course] {
-    // Public access - anyone can view courses
     courses.toArray().map(func((id, course)) { course }).sort();
   };
 
   public query ({ caller }) func getCourse(courseId : Nat) : async ?Course {
-    // Public access - anyone can view a specific course
     courses.get(courseId);
   };
 
   public query ({ caller }) func getJob(jobId : Nat) : async ?JobListing {
-    // Public access - but non-admins can only view approved jobs
     switch (jobListings.get(jobId)) {
       case (null) { null };
       case (?job) {
@@ -455,7 +717,7 @@ actor {
     };
   };
 
-  // Admin queries
+  // Admin queries (II-based)
   public query ({ caller }) func adminGetAllWorkers() : async [(Principal, WorkerProfile)] {
     assertAdmin(caller);
     workerProfiles.toArray();
@@ -489,7 +751,7 @@ actor {
     };
   };
 
-  // Admin actions
+  // Admin actions (II-based)
   public shared ({ caller }) func adminBlockUser(user : Principal) : async () {
     assertAdmin(caller);
     blockedUsers.add(user, true);
@@ -538,7 +800,6 @@ actor {
     jobListings.remove(jobId);
   };
 
-  // Public query for blocked users
   public query ({ caller }) func isUserBlocked(user : Principal) : async Bool {
     blockedUsers.containsKey(user);
   };
@@ -596,7 +857,6 @@ actor {
     let jobsArray = jobListings.toArray().map(func((_, job)) { job });
     let appsArray = applications.toArray().map(func((_, app)) { app });
 
-    // Sort in descending order (most recent first)
     let sortedJobs = jobsArray.sort(func(a : JobListing, b : JobListing) : Order.Order {
       Nat.compare(b.id, a.id);
     });
@@ -604,7 +864,6 @@ actor {
       Nat.compare(b.id, a.id);
     });
 
-    // Take first 5 (which are now the most recent)
     let recentJobs = if (sortedJobs.size() > 5) {
       Array.tabulate(5, func(i) { sortedJobs[i] });
     } else {

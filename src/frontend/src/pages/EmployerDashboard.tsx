@@ -34,6 +34,7 @@ import {
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { backendPostJob, backendSaveEmployerProfile } from "../utils/backendDb";
 import { getEmployerSession } from "../utils/employerSession";
 import {
   getApplicationsForEmployer,
@@ -601,6 +602,10 @@ function ProfileView({ onSaved }: { onSaved: () => void }) {
     }
     setSaving(true);
     saveEmployerProfileData(session.phone, { companyName: companyName.trim() });
+    // Also save to ICP backend for cross-device sync
+    backendSaveEmployerProfile(session.phone, companyName.trim()).catch(
+      () => {},
+    ); // fire-and-forget
     toast.success("Profile saved! ✅");
     setSaving(false);
     onSaved();
@@ -677,7 +682,7 @@ function PostJobView({ onDone }: { onDone: () => void }) {
       erpSession?.companyName ||
       erpSession?.email?.split("@")[0] ||
       "My Company";
-    postJob({
+    const newJob = postJob({
       title: form.title,
       company: companyName,
       location: form.location,
@@ -686,6 +691,18 @@ function PostJobView({ onDone }: { onDone: () => void }) {
       description: form.description,
       employerPhone: erpSession?.phone || "unknown",
     });
+    // Also save to ICP backend for cross-device sync
+    backendPostJob({
+      id: newJob.id,
+      title: newJob.title,
+      company: newJob.company,
+      location: newJob.location,
+      salary: newJob.salary,
+      category: newJob.category,
+      description: newJob.description,
+      employerPhone: newJob.employerPhone,
+      postedAt: newJob.postedAt,
+    }).catch(() => {}); // fire-and-forget
     toast.success("Job posted successfully! 🎉");
     onDone();
   };

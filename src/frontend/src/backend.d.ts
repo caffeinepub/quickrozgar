@@ -65,6 +65,32 @@ export enum Variant_employer_worker {
     employer = "employer",
     worker = "worker"
 }
+export interface PublicJob {
+    id: string;
+    title: string;
+    company: string;
+    location: string;
+    salary: string;
+    category: string;
+    description: string;
+    employerPhone: string;
+    postedAt: bigint;
+    status: string;
+}
+export interface PublicApplication {
+    id: string;
+    jobId: string;
+    jobTitle: string;
+    company: string;
+    location: string;
+    employeePhone: string;
+    employeeName: string;
+    employeeEmail: string;
+    experience: string;
+    appliedAt: bigint;
+    status: string;
+    candidateStatus: string;
+}
 export interface backendInterface {
     adminApproveJob(jobId: bigint): Promise<void>;
     adminBlockUser(user: Principal): Promise<void>;
@@ -105,4 +131,21 @@ export interface backendInterface {
     updateApplicationStatus(applicationId: bigint, newStatus: string): Promise<void>;
     updateCourse(courseId: bigint, title: string, description: string): Promise<void>;
     updateJobListing(jobId: bigint, title: string, company: string, location: string, salary: string, category: string, description: string): Promise<void>;
+    publicSaveJob(id: string, title: string, company: string, location: string, salary: string, category: string, description: string, employerPhone: string, postedAt: bigint): Promise<void>;
+    publicSaveApplication(id: string, jobId: string, jobTitle: string, company: string, location: string, employeePhone: string, employeeName: string, employeeEmail: string, experience: string, appliedAt: bigint): Promise<void>;
+    publicGetAllJobs(): Promise<Array<PublicJob>>;
+    publicGetAllApplications(): Promise<Array<PublicApplication>>;
+    publicGetApprovedJobs(): Promise<Array<PublicJob>>;
+    publicGetMyApplications(employeePhone: string): Promise<Array<PublicApplication>>;
+    publicGetEmployerApplications(employerPhone: string): Promise<Array<PublicApplication>>;
+    publicGetEmployerJobs(employerPhone: string): Promise<Array<PublicJob>>;
+    publicAdminUpdateJobStatus(jobId: string, status: string): Promise<void>;
+    publicAdminUpdateApplicationStatus(appId: string, status: string): Promise<void>;
+    publicUpdateCandidateStatus(appId: string, candidateStatus: string): Promise<void>;
+    publicAdminDeleteJob(jobId: string): Promise<void>;
+    publicSaveEmployerProfile(phone: string, companyName: string): Promise<void>;
+    publicSaveEmployerPlan(phone: string, plan: string): Promise<void>;
+    publicGetEmployerCompanyName(phone: string): Promise<string | null>;
+    publicGetAllEmployerProfiles(): Promise<Array<[string, string]>>;
+    publicGetAllEmployerPlans2(): Promise<Array<[string, string]>>;
 }

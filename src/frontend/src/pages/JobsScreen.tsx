@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { backendApplyToJob } from "../utils/backendDb";
 import { getEmployeeSession } from "../utils/employeeSession";
 import {
   getAllJobs as getLocalJobs,
@@ -122,6 +123,7 @@ interface ApplyFormState {
 type DisplayJob = {
   title: string;
   company: string;
+  location?: string;
   localId?: string;
 };
 
@@ -176,6 +178,7 @@ export default function JobsScreen({
       return matched.map((j) => ({
         title: j.title,
         company: j.company,
+        location: j.location,
         localId: j.id,
       }));
     }
@@ -255,6 +258,19 @@ export default function JobsScreen({
         return;
       }
       if (result.success) {
+        // Also save to ICP backend for cross-device sync
+        backendApplyToJob({
+          id: `app_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          jobId: applyJob.localId,
+          jobTitle: applyJob.title,
+          company: applyJob.company,
+          location: applyJob.location || selectedCity || applyJob.company,
+          employeePhone: form.phone,
+          employeeName: form.name,
+          employeeEmail: session.email,
+          experience: form.experience,
+          appliedAt: Date.now(),
+        }).catch(() => {}); // fire-and-forget
         setSubmitted(true);
       } else {
         toast.error("Apply nahi hua. Dobara try karo.");

@@ -147,6 +147,32 @@ export enum Variant_employer_worker {
     employer = "employer",
     worker = "worker"
 }
+export interface PublicJob {
+    id: string;
+    title: string;
+    company: string;
+    location: string;
+    salary: string;
+    category: string;
+    description: string;
+    employerPhone: string;
+    postedAt: bigint;
+    status: string;
+}
+export interface PublicApplication {
+    id: string;
+    jobId: string;
+    jobTitle: string;
+    company: string;
+    location: string;
+    employeePhone: string;
+    employeeName: string;
+    employeeEmail: string;
+    experience: string;
+    appliedAt: bigint;
+    status: string;
+    candidateStatus: string;
+}
 export interface backendInterface {
     _initializeAccessControlWithSecret(userSecret: string): Promise<void>;
     adminApproveJob(jobId: bigint): Promise<void>;
@@ -188,6 +214,23 @@ export interface backendInterface {
     updateApplicationStatus(applicationId: bigint, newStatus: string): Promise<void>;
     updateCourse(courseId: bigint, title: string, description: string): Promise<void>;
     updateJobListing(jobId: bigint, title: string, company: string, location: string, salary: string, category: string, description: string): Promise<void>;
+    publicSaveJob(id: string, title: string, company: string, location: string, salary: string, category: string, description: string, employerPhone: string, postedAt: bigint): Promise<void>;
+    publicSaveApplication(id: string, jobId: string, jobTitle: string, company: string, location: string, employeePhone: string, employeeName: string, employeeEmail: string, experience: string, appliedAt: bigint): Promise<void>;
+    publicGetAllJobs(): Promise<Array<PublicJob>>;
+    publicGetAllApplications(): Promise<Array<PublicApplication>>;
+    publicGetApprovedJobs(): Promise<Array<PublicJob>>;
+    publicGetMyApplications(employeePhone: string): Promise<Array<PublicApplication>>;
+    publicGetEmployerApplications(employerPhone: string): Promise<Array<PublicApplication>>;
+    publicGetEmployerJobs(employerPhone: string): Promise<Array<PublicJob>>;
+    publicAdminUpdateJobStatus(jobId: string, status: string): Promise<void>;
+    publicAdminUpdateApplicationStatus(appId: string, status: string): Promise<void>;
+    publicUpdateCandidateStatus(appId: string, candidateStatus: string): Promise<void>;
+    publicAdminDeleteJob(jobId: string): Promise<void>;
+    publicSaveEmployerProfile(phone: string, companyName: string): Promise<void>;
+    publicSaveEmployerPlan(phone: string, plan: string): Promise<void>;
+    publicGetEmployerCompanyName(phone: string): Promise<string | null>;
+    publicGetAllEmployerProfiles(): Promise<Array<[string, string]>>;
+    publicGetAllEmployerPlans2(): Promise<Array<[string, string]>>;
 }
 import type { Course as _Course, EmployerProfile as _EmployerProfile, JobListing as _JobListing, UserProfile as _UserProfile, UserRole as _UserRole, WorkerProfile as _WorkerProfile } from "./declarations/backend.did.d.ts";
 export class Backend implements backendInterface {
@@ -751,6 +794,57 @@ export class Backend implements backendInterface {
             const result = await this.actor.updateJobListing(arg0, arg1, arg2, arg3, arg4, arg5, arg6);
             return result;
         }
+    }
+    async publicSaveJob(id: string, title: string, company: string, location: string, salary: string, category: string, description: string, employerPhone: string, postedAt: bigint): Promise<void> {
+        return this.actor.publicSaveJob(id, title, company, location, salary, category, description, employerPhone, postedAt);
+    }
+    async publicSaveApplication(id: string, jobId: string, jobTitle: string, company: string, location: string, employeePhone: string, employeeName: string, employeeEmail: string, experience: string, appliedAt: bigint): Promise<void> {
+        return this.actor.publicSaveApplication(id, jobId, jobTitle, company, location, employeePhone, employeeName, employeeEmail, experience, appliedAt);
+    }
+    async publicGetAllJobs(): Promise<Array<PublicJob>> {
+        return this.actor.publicGetAllJobs();
+    }
+    async publicGetAllApplications(): Promise<Array<PublicApplication>> {
+        return this.actor.publicGetAllApplications();
+    }
+    async publicGetApprovedJobs(): Promise<Array<PublicJob>> {
+        return this.actor.publicGetApprovedJobs();
+    }
+    async publicGetMyApplications(employeePhone: string): Promise<Array<PublicApplication>> {
+        return this.actor.publicGetMyApplications(employeePhone);
+    }
+    async publicGetEmployerApplications(employerPhone: string): Promise<Array<PublicApplication>> {
+        return this.actor.publicGetEmployerApplications(employerPhone);
+    }
+    async publicGetEmployerJobs(employerPhone: string): Promise<Array<PublicJob>> {
+        return this.actor.publicGetEmployerJobs(employerPhone);
+    }
+    async publicAdminUpdateJobStatus(jobId: string, status: string): Promise<void> {
+        return this.actor.publicAdminUpdateJobStatus(jobId, status);
+    }
+    async publicAdminUpdateApplicationStatus(appId: string, status: string): Promise<void> {
+        return this.actor.publicAdminUpdateApplicationStatus(appId, status);
+    }
+    async publicUpdateCandidateStatus(appId: string, candidateStatus: string): Promise<void> {
+        return this.actor.publicUpdateCandidateStatus(appId, candidateStatus);
+    }
+    async publicAdminDeleteJob(jobId: string): Promise<void> {
+        return this.actor.publicAdminDeleteJob(jobId);
+    }
+    async publicSaveEmployerProfile(phone: string, companyName: string): Promise<void> {
+        return this.actor.publicSaveEmployerProfile(phone, companyName);
+    }
+    async publicSaveEmployerPlan(phone: string, plan: string): Promise<void> {
+        return this.actor.publicSaveEmployerPlan(phone, plan);
+    }
+    async publicGetEmployerCompanyName(phone: string): Promise<string | null> {
+        return this.actor.publicGetEmployerCompanyName(phone);
+    }
+    async publicGetAllEmployerProfiles(): Promise<Array<[string, string]>> {
+        return this.actor.publicGetAllEmployerProfiles();
+    }
+    async publicGetAllEmployerPlans2(): Promise<Array<[string, string]>> {
+        return this.actor.publicGetAllEmployerPlans2();
     }
 }
 function from_candid_UserProfile_n4(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _UserProfile): UserProfile {
